@@ -36,10 +36,6 @@
 #include "lstm_layer.h"
 #include "utils.h"
 
-typedef struct{
-    char *type;
-    list *options;
-}section;
 
 list *read_cfg(char *filename);
 

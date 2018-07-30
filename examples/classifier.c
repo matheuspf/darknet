@@ -3,18 +3,7 @@
 #include <sys/time.h>
 #include <assert.h>
 
-
-typedef enum { ACCURACY, F1_SCORE, LOSS } TRAIN_METRIC;
-
-typedef struct
-{
-    TRAIN_METRIC metric;
-    int eval_epochs;
-    int max_epochs;
-    int patience;
-    int seed;
-
-} SSM_Params;
+#include "../src/parser.h"
 
 
 float calculate_accurracy (char*, char*, char*, char*);
@@ -37,7 +26,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 {
     int i;
 
-    FILE* training_log = fopen("training_log.txt", "w");
+    FILE* training_log = fopen(params.training_log, "w");
 
     float avg_loss = -1;
     char *base = basecfg(cfgfile);
@@ -128,12 +117,10 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     
     int count = 0;
     int epoch = (*net->seen)/N;
-    while(epoch > params.max_epochs || get_current_batch(net) < net->max_batches || net->max_batches == 0){
+    while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches){
         if(net->random && count++%40 == 0){
             printf("Resizing\n");
             int dim = (rand() % 11 + 4) * 32;
-            //if (get_current_batch(net)+200 > net->max_batches) dim = 608;
-            //int dim = (rand() % 4 + 16) * 32;
             printf("%d\n", dim);
             args.w = dim;
             args.h = dim;
@@ -252,11 +239,6 @@ float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char
     float avg_topk = 0;
     int *indexes = calloc(topk, sizeof(int));
 
-    // network orig = *net;
-    // net->truth = 0;
-    // net->train = 0;
-    // net->delta = 0;
-
 
     for(i = 0; i < m; ++i){
         int class = -1;
@@ -270,12 +252,6 @@ float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char
         image im = load_image_color(paths[i], 0, 0);
         image crop = center_crop_image(im, net->w, net->h);
         
-        // net->input = crop.data;
-        // forward_network(net);
-        // error += *net->cost;
-        // printf("%f\n", *net->cost);
-
-
         float *pred = network_predict(net, crop.data);
 
         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
@@ -291,53 +267,11 @@ float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char
     }
 
     free(indexes);
-
-    //*net = orig;
+    free_network(net);
+    free(paths);
     
     return avg_acc / m;
-    //return error / m;
 }
-
-
-// float calculate_accurracy (network *net, int classes, int topk, char** paths, char** labels, int m)
-// {
-//     int i, j;
-
-//     float avg_acc = 0;
-//     float avg_topk = 0;
-//     int *indexes = calloc(topk, sizeof(int));
-
-//     for(i = 0; i < m; ++i){
-        
-//         int class = -1;
-//         char *path = paths[i];
-//         for(j = 0; j < classes; ++j){
-//             if(strstr(path, labels[j])){
-//                 class = j;
-//                 break;
-//             }
-//         }
-
-//         image im = load_image_color(paths[i], 0, 0);
-//         image crop = center_crop_image(im, net->w, net->h);
-
-//         float *pred = network_predict(net, crop.data);
-//         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
-
-//         free_image(im);
-//         free_image(crop);
-//         top_k(pred, classes, topk, indexes);
-
-//         if(indexes[0] == class) avg_acc += 1;
-//         for(j = 0; j < topk; ++j){
-//             if(indexes[j] == class) avg_topk += 1;
-//         }
-//     }
-
-//     return avg_acc / m;
-// }
-
-
 
 
 
@@ -1391,26 +1325,41 @@ void run_classifier(int argc, char **argv)
     int ngpus;
     int *gpus = read_intlist(gpu_list, &ngpus, gpu_index);
 
-    int eval_epochs = find_int_arg(argc, argv, "-eval_epochs", 1);
-    int max_epochs = find_int_arg(argc, argv, "-max_epochs", 100);
-    int patience = find_int_arg(argc, argv, "-patience", 10);
-    int seed = find_int_arg(argc, argv, "-seed", -1);
-    char* metric_name = find_char_arg(argc, argv, "-metric", "accuracy");
-    TRAIN_METRIC metric;
-
-    if(strcmp(metric_name, "accuracy") == 0)
-        metric = ACCURACY;
-
-
     int cam_index = find_int_arg(argc, argv, "-c", 0);
     int top = find_int_arg(argc, argv, "-t", 0);
     int clear = find_arg(argc, argv, "-clear");
     char *data = argv[3];
     char *cfg = argv[4];
+
+    list *sections = read_cfg(cfg);
+    node *n = sections->front;
+    section *s = (section *)n->val;
+    list *options = s->options;
+
+    int eval_epochs = option_find_int(options, "eval_epochs", 1);
+    int max_epochs = option_find_int(options, "max_epochs", 100);
+    int patience = option_find_int(options, "patience", 10);
+    int seed = option_find_int(options, "seed", -1);
+    char* metric_name = option_find_str(options, "metric", "accuracy");
+    char* training_log = option_find_str(options, "training-log", "training_log.txt");
+    TRAIN_METRIC metric;
+
+    eval_epochs = find_int_arg(argc, argv, "-eval_epochs", eval_epochs);
+    max_epochs = find_int_arg(argc, argv, "-max_epochs", max_epochs);
+    patience = find_int_arg(argc, argv, "-patience", patience);
+    seed = find_int_arg(argc, argv, "-seed", seed);
+    metric_name = find_char_arg(argc, argv, "-metric", metric_name);
+    training_log = find_char_arg(argc, argv, "-training-log", training_log);
+
+    if(strcmp(metric_name, "accuracy") == 0)
+        metric = ACCURACY;
+
     char *weights = (argc > 5) ? argv[5] : 0;
     char *filename = (argc > 6) ? argv[6]: 0;
     char *layer_s = (argc > 7) ? argv[7]: 0;
     int layer = layer_s ? atoi(layer_s) : -1;
+
+
     if(0==strcmp(argv[2], "predict")) predict_classifier(data, cfg, weights, filename, top);
     else if(0==strcmp(argv[2], "fout")) file_output_classifier(data, cfg, weights, filename);
     else if(0==strcmp(argv[2], "try")) try_classifier(data, cfg, weights, filename, atoi(layer_s));
@@ -1425,7 +1374,8 @@ void run_classifier(int argc, char **argv)
     else if(0==strcmp(argv[2], "valid10")) validate_classifier_10(data, cfg, weights);
     else if(0==strcmp(argv[2], "validcrop")) validate_classifier_crop(data, cfg, weights);
     else if(0==strcmp(argv[2], "validfull")) validate_classifier_full(data, cfg, weights);
-    else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear, (SSM_Params){metric, eval_epochs, max_epochs, patience, seed});
+    else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear, 
+                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, training_log});
 }
 
 
