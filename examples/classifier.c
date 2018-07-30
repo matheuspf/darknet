@@ -3,6 +3,23 @@
 #include <sys/time.h>
 #include <assert.h>
 
+
+typedef enum { ACCURACY, F1_SCORE, LOSS } TRAIN_METRIC;
+
+typedef struct
+{
+    TRAIN_METRIC metric;
+    int eval_epochs;
+    int max_epochs;
+    int patience;
+    int seed;
+
+} SSM_Params;
+
+
+float calculate_accurracy (char*, char*, char*, char*);
+
+
 float *get_regression_values(char **labels, int n)
 {
     float *v = calloc(n, sizeof(float));
@@ -14,6 +31,318 @@ float *get_regression_values(char **labels, int n)
     }
     return v;
 }
+
+
+void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
+{
+    int i;
+
+    FILE* training_log = fopen("training_log.txt", "w");
+
+    float avg_loss = -1;
+    char *base = basecfg(cfgfile);
+    printf("%s\n", base);
+    printf("%d\n", ngpus);
+    network **nets = calloc(ngpus, sizeof(network*));
+
+    srand(time(0));
+    int seed = rand();
+    for(i = 0; i < ngpus; ++i){
+        srand(seed);
+#ifdef GPU
+        cuda_set_device(gpus[i]);
+#endif
+        nets[i] = load_network(cfgfile, weightfile, clear);
+        nets[i]->learning_rate *= ngpus;
+    }
+    
+    srand(params.seed == -1 ? time(0) : params.seed);
+    network *net = nets[0];
+
+    int imgs = net->batch * net->subdivisions * ngpus;
+
+    printf("Learning Rate: %g, Momentum: %g, Decay: %g\n", net->learning_rate, net->momentum, net->decay);
+    list *options = read_data_cfg(datacfg);
+
+    char *backup_directory = option_find_str(options, "backup", "/backup/");
+    int tag = option_find_int_quiet(options, "tag", 0);
+    char *label_list = option_find_str(options, "labels", "data/labels.list");
+    char *train_list = option_find_str(options, "train", "data/train.list");
+    char *tree = option_find_str(options, "tree", 0);
+    if (tree) net->hierarchy = read_tree(tree);
+    int classes = option_find_int(options, "classes", 2);
+
+    char **labels = 0;
+    if(!tag){
+        labels = get_labels(label_list);
+    }
+    list *plist = get_paths(train_list);
+    char **paths = (char **)list_to_array(plist);
+    printf("%d\n", plist->size);
+    int N = plist->size;
+    double time;
+
+    load_args args = {0};
+    args.w = net->w;
+    args.h = net->h;
+    args.threads = 32;
+    args.hierarchy = net->hierarchy;
+
+    args.min = net->min_ratio*net->w;
+    args.max = net->max_ratio*net->w;
+    printf("%d %d\n", args.min, args.max);
+    args.angle = net->angle;
+    args.aspect = net->aspect;
+    args.exposure = net->exposure;
+    args.saturation = net->saturation;
+    args.hue = net->hue;
+    args.size = net->w;
+
+    args.paths = paths;
+    args.classes = classes;
+    args.n = imgs;
+    args.m = N;
+    args.labels = labels;
+    if (tag){
+        args.type = TAG_DATA;
+    } else {
+        args.type = CLASSIFICATION_DATA;
+    }
+
+    data train;
+    data buffer;
+    pthread_t load_thread;
+    args.d = &buffer;
+    load_thread = load_data(args);
+
+    int total_max_epochs = params.max_epochs / params.eval_epochs;
+    total_max_epochs = total_max_epochs > 1 ? total_max_epochs : 1;
+
+    float *train_accs = malloc(total_max_epochs * sizeof(float));
+    float *valid_accs = malloc(total_max_epochs * sizeof(float));
+    float best_acc = -1.0;
+    int bad_epochs = -1;
+
+    int update_epoch = 0;
+    
+    
+    int count = 0;
+    int epoch = (*net->seen)/N;
+    while(epoch > params.max_epochs || get_current_batch(net) < net->max_batches || net->max_batches == 0){
+        if(net->random && count++%40 == 0){
+            printf("Resizing\n");
+            int dim = (rand() % 11 + 4) * 32;
+            //if (get_current_batch(net)+200 > net->max_batches) dim = 608;
+            //int dim = (rand() % 4 + 16) * 32;
+            printf("%d\n", dim);
+            args.w = dim;
+            args.h = dim;
+            args.size = dim;
+            args.min = net->min_ratio*dim;
+            args.max = net->max_ratio*dim;
+            printf("%d %d\n", args.min, args.max);
+
+            pthread_join(load_thread, 0);
+            train = buffer;
+            free_data(train);
+            load_thread = load_data(args);
+
+            for(i = 0; i < ngpus; ++i){
+                resize_network(nets[i], dim, dim);
+            }
+            net = nets[0];
+        }
+        time = what_time_is_it_now();
+
+        pthread_join(load_thread, 0);
+        train = buffer;
+        load_thread = load_data(args);
+
+        printf("Loaded: %lf seconds\n", what_time_is_it_now()-time);
+        time = what_time_is_it_now();
+
+        float loss = 0;
+#ifdef GPU
+        if(ngpus == 1){
+            loss = train_network(net, train);
+        } else {
+            loss = train_networks(nets, ngpus, train, 4);
+        }
+#else
+        loss = train_network(net, train);
+#endif
+        if(avg_loss == -1) avg_loss = loss;
+        avg_loss = avg_loss*.9 + loss*.1;
+        printf("%ld, %.3f: %f, %f avg, %f rate, %lf seconds, %ld images\n", get_current_batch(net), (float)(*net->seen)/N, loss, avg_loss, get_current_rate(net), what_time_is_it_now()-time, *net->seen);
+        free_data(train);
+
+        if(*net->seen/N > epoch) {
+            epoch = *net->seen/N;
+            update_epoch = 1;
+        }
+
+        if(update_epoch && epoch % params.eval_epochs == 0){
+            char buff[256];
+            sprintf(buff, "%s/%s.weights",backup_directory,base);
+            save_weights(net, buff);
+            update_epoch = 0;
+
+            int cur_epoch = epoch / params.eval_epochs;
+
+            train_accs[cur_epoch] = calculate_accurracy(datacfg, cfgfile, buff, "train");
+            valid_accs[cur_epoch] = calculate_accurracy(datacfg, cfgfile, buff, "valid");
+
+            printf("\n\nTRAIN ACC: %f\nVALID ACC: %f\n\n\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
+
+            fprintf(training_log, "%f %f\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
+
+            if(valid_accs[cur_epoch] > best_acc){
+                best_acc = valid_accs[cur_epoch];
+                sprintf(buff, "%s/%s-best.weights",backup_directory,base);
+                save_weights(net, buff);
+            }
+
+            if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
+                bad_epochs = 0;
+
+            else if(++bad_epochs > params.patience)
+                break;
+        }
+    }
+    char buff[256];
+    sprintf(buff, "%s/%s.weights", backup_directory, base);
+    save_weights(net, buff);
+    pthread_join(load_thread, 0);
+
+    free_network(net);
+    if(labels) free_ptrs((void**)labels, classes);
+    free_ptrs((void**)paths, plist->size);
+    free_list(plist);
+    free(base);
+    free(valid_accs);
+    free(train_accs);
+    fclose(training_log);
+}
+
+
+float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char* set_name)
+{
+    int i, j;
+    network *net = load_network(filename, weightfile, 0);
+    set_batch_network(net, 1);
+    srand(time(0));
+
+    list *options = read_data_cfg(datacfg);
+
+    char *label_list = option_find_str(options, "labels", "data/labels.list");
+    char *leaf_list = option_find_str(options, "leaves", 0);
+    if(leaf_list) change_leaves(net->hierarchy, leaf_list);
+    char *valid_list = option_find_str(options, set_name, "data/test.list");
+    int classes = option_find_int(options, "classes", 2);
+    int topk = option_find_int(options, "top", 1);
+
+    char **labels = get_labels(label_list);
+    list *plist = get_paths(valid_list);
+
+    char **paths = (char **)list_to_array(plist);
+    int m = plist->size;
+    free_list(plist);
+
+    float avg_acc = 0;
+    float avg_topk = 0;
+    int *indexes = calloc(topk, sizeof(int));
+
+    // network orig = *net;
+    // net->truth = 0;
+    // net->train = 0;
+    // net->delta = 0;
+
+
+    for(i = 0; i < m; ++i){
+        int class = -1;
+        char *path = paths[i];
+        for(j = 0; j < classes; ++j){
+            if(strstr(path, labels[j])){
+                class = j;
+                break;
+            }
+        }
+        image im = load_image_color(paths[i], 0, 0);
+        image crop = center_crop_image(im, net->w, net->h);
+        
+        // net->input = crop.data;
+        // forward_network(net);
+        // error += *net->cost;
+        // printf("%f\n", *net->cost);
+
+
+        float *pred = network_predict(net, crop.data);
+
+        if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
+
+        free_image(im);
+        free_image(crop);
+        top_k(pred, classes, topk, indexes);
+
+        if(indexes[0] == class) avg_acc += 1;
+        for(j = 0; j < topk; ++j){
+            if(indexes[j] == class) avg_topk += 1;
+        }
+    }
+
+    free(indexes);
+
+    //*net = orig;
+    
+    return avg_acc / m;
+    //return error / m;
+}
+
+
+// float calculate_accurracy (network *net, int classes, int topk, char** paths, char** labels, int m)
+// {
+//     int i, j;
+
+//     float avg_acc = 0;
+//     float avg_topk = 0;
+//     int *indexes = calloc(topk, sizeof(int));
+
+//     for(i = 0; i < m; ++i){
+        
+//         int class = -1;
+//         char *path = paths[i];
+//         for(j = 0; j < classes; ++j){
+//             if(strstr(path, labels[j])){
+//                 class = j;
+//                 break;
+//             }
+//         }
+
+//         image im = load_image_color(paths[i], 0, 0);
+//         image crop = center_crop_image(im, net->w, net->h);
+
+//         float *pred = network_predict(net, crop.data);
+//         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
+
+//         free_image(im);
+//         free_image(crop);
+//         top_k(pred, classes, topk, indexes);
+
+//         if(indexes[0] == class) avg_acc += 1;
+//         for(j = 0; j < topk; ++j){
+//             if(indexes[j] == class) avg_topk += 1;
+//         }
+//     }
+
+//     return avg_acc / m;
+// }
+
+
+
+
+
+
+
 
 void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear)
 {
@@ -1062,6 +1391,16 @@ void run_classifier(int argc, char **argv)
     int ngpus;
     int *gpus = read_intlist(gpu_list, &ngpus, gpu_index);
 
+    int eval_epochs = find_int_arg(argc, argv, "-eval_epochs", 1);
+    int max_epochs = find_int_arg(argc, argv, "-max_epochs", 100);
+    int patience = find_int_arg(argc, argv, "-patience", 10);
+    int seed = find_int_arg(argc, argv, "-seed", -1);
+    char* metric_name = find_char_arg(argc, argv, "-metric", "accuracy");
+    TRAIN_METRIC metric;
+
+    if(strcmp(metric_name, "accuracy") == 0)
+        metric = ACCURACY;
+
 
     int cam_index = find_int_arg(argc, argv, "-c", 0);
     int top = find_int_arg(argc, argv, "-t", 0);
@@ -1086,6 +1425,7 @@ void run_classifier(int argc, char **argv)
     else if(0==strcmp(argv[2], "valid10")) validate_classifier_10(data, cfg, weights);
     else if(0==strcmp(argv[2], "validcrop")) validate_classifier_crop(data, cfg, weights);
     else if(0==strcmp(argv[2], "validfull")) validate_classifier_full(data, cfg, weights);
+    else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear, (SSM_Params){metric, eval_epochs, max_epochs, patience, seed});
 }
 
 
