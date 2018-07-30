@@ -1,12 +1,7 @@
-#include "darknet.h"
+#include "classifier.h"
 
-#include <sys/time.h>
-#include <assert.h>
+const Evaluation_Metric evaluation_metrics[NUM_METRICS] = { calculate_accuracy, calculate_precision };
 
-#include "../src/parser.h"
-
-
-float calculate_accurracy (char*, char*, char*, char*);
 
 
 float *get_regression_values(char **labels, int n)
@@ -24,18 +19,20 @@ float *get_regression_values(char **labels, int n)
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
 {
-    int i;
+    int i, j;
+
+    char* base = basecfg(cfgfile);
 
     FILE* training_log = fopen(params.training_log, "w");
 
-    float avg_loss = -1;
-    char *base = basecfg(cfgfile);
-    printf("%s\n", base);
-    printf("%d\n", ngpus);
     network **nets = calloc(ngpus, sizeof(network*));
+
+    Evaluation_Metric eval = evaluation_metrics[params.metric];
+
 
     srand(time(0));
     int seed = rand();
+
     for(i = 0; i < ngpus; ++i){
         srand(seed);
 #ifdef GPU
@@ -46,11 +43,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     }
     
     srand(params.seed == -1 ? time(0) : params.seed);
+
     network *net = nets[0];
 
     int imgs = net->batch * net->subdivisions * ngpus;
 
-    printf("Learning Rate: %g, Momentum: %g, Decay: %g\n", net->learning_rate, net->momentum, net->decay);
     list *options = read_data_cfg(datacfg);
 
     char *backup_directory = option_find_str(options, "backup", "/backup/");
@@ -62,12 +59,12 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int classes = option_find_int(options, "classes", 2);
 
     char **labels = 0;
-    if(!tag){
+
+    if(!tag)
         labels = get_labels(label_list);
-    }
+
     list *plist = get_paths(train_list);
     char **paths = (char **)list_to_array(plist);
-    printf("%d\n", plist->size);
     int N = plist->size;
     double time;
 
@@ -79,7 +76,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     args.min = net->min_ratio*net->w;
     args.max = net->max_ratio*net->w;
-    printf("%d %d\n", args.min, args.max);
     args.angle = net->angle;
     args.aspect = net->aspect;
     args.exposure = net->exposure;
@@ -92,11 +88,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     args.n = imgs;
     args.m = N;
     args.labels = labels;
-    if (tag){
+    if (tag)
         args.type = TAG_DATA;
-    } else {
+
+    else
         args.type = CLASSIFICATION_DATA;
-    }
 
     data train;
     data buffer;
@@ -110,13 +106,10 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     float *train_accs = malloc(total_max_epochs * sizeof(float));
     float *valid_accs = malloc(total_max_epochs * sizeof(float));
     float best_acc = -1.0;
-    int bad_epochs = -1;
-
-    int update_epoch = 0;
+    int bad_epochs = -1, update_epoch = 0;
+    int epoch = (*net->seen)/N, count = 0;
     
     
-    int count = 0;
-    int epoch = (*net->seen)/N;
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches){
         if(net->random && count++%40 == 0){
             printf("Resizing\n");
@@ -145,7 +138,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         train = buffer;
         load_thread = load_data(args);
 
-        printf("Loaded: %lf seconds\n", what_time_is_it_now()-time);
         time = what_time_is_it_now();
 
         float loss = 0;
@@ -158,9 +150,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 #else
         loss = train_network(net, train);
 #endif
-        if(avg_loss == -1) avg_loss = loss;
-        avg_loss = avg_loss*.9 + loss*.1;
-        printf("%ld, %.3f: %f, %f avg, %f rate, %lf seconds, %ld images\n", get_current_batch(net), (float)(*net->seen)/N, loss, avg_loss, get_current_rate(net), what_time_is_it_now()-time, *net->seen);
+        printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
+            get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
         free_data(train);
 
         if(*net->seen/N > epoch) {
@@ -168,18 +159,29 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             update_epoch = 1;
         }
 
-        if(update_epoch && epoch % params.eval_epochs == 0){
-            char buff[256];
-            sprintf(buff, "%s/%s.weights",backup_directory,base);
+        if(update_epoch && (epoch % params.eval_epochs) == 0){
+            char buff[1024];
+            sprintf(buff, "%s/%s.weights",backup_directory, base);
             save_weights(net, buff);
             update_epoch = 0;
 
             int cur_epoch = epoch / params.eval_epochs;
 
-            train_accs[cur_epoch] = calculate_accurracy(datacfg, cfgfile, buff, "train");
-            valid_accs[cur_epoch] = calculate_accurracy(datacfg, cfgfile, buff, "valid");
+            //train_accs[cur_epoch] = calculate_accurracy(datacfg, cfgfile, buff, "train");
+            //valid_accs[cur_epoch] = calculate_accurracy(datacfg, cfgfile, buff, "valid");
 
-            printf("\n\nTRAIN ACC: %f\nVALID ACC: %f\n\n\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
+            float** conf_train = calculate_confusion_matrix(datacfg, cfgfile, buff, "train");
+            float** conf_valid = calculate_confusion_matrix(datacfg, cfgfile, buff, "valid");
+
+            train_accs[cur_epoch] = eval(conf_train, classes);
+            valid_accs[cur_epoch] = eval(conf_valid, classes);
+
+            for(j = 0; j < classes; ++j)
+                free(conf_train[j]), free(conf_valid[j]);
+            free(conf_train), free(conf_valid);
+
+
+            printf("\n\nTrain metric: %f\nValidation metric: %f\n\n\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
 
             fprintf(training_log, "%f %f\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
 
@@ -196,7 +198,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
                 break;
         }
     }
-    char buff[256];
+
+    char buff[1024];
     sprintf(buff, "%s/%s.weights", backup_directory, base);
     save_weights(net, buff);
     pthread_join(load_thread, 0);
@@ -205,14 +208,16 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     if(labels) free_ptrs((void**)labels, classes);
     free_ptrs((void**)paths, plist->size);
     free_list(plist);
-    free(base);
-    free(valid_accs);
-    free(train_accs);
+    //free(valid_accs);
+    //free(train_accs);
     fclose(training_log);
+    //free(base);
 }
 
 
-float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char* set_name)
+
+
+float** calculate_confusion_matrix (char *datacfg, char *filename, char *weightfile, char* set_name)
 {
     int i, j;
     network *net = load_network(filename, weightfile, 0);
@@ -239,6 +244,11 @@ float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char
     float avg_topk = 0;
     int *indexes = calloc(topk, sizeof(int));
 
+    float** conf = malloc(classes * sizeof(float*));
+
+    for(i = 0; i < classes; ++i)
+        conf[i] = calloc(classes, sizeof(float));
+
 
     for(i = 0; i < m; ++i){
         int class = -1;
@@ -261,20 +271,66 @@ float calculate_accurracy (char *datacfg, char *filename, char *weightfile, char
         top_k(pred, classes, topk, indexes);
 
         if(indexes[0] == class) avg_acc += 1;
-        for(j = 0; j < topk; ++j){
+
+        for(j = 0; j < topk; ++j)
             if(indexes[j] == class) avg_topk += 1;
-        }
+
+        conf[class][indexes[0]]++;
     }
 
     free(indexes);
     free_network(net);
     free(paths);
     
-    return avg_acc / m;
+    return conf;
 }
 
 
 
+float calculate_metric (float num, float den)
+{
+    return fabs(den) < 1e-8 ? 0.0 : num / den;
+}
+
+
+float calculate_accuracy (float** conf, int classes)
+{
+    int i, j;
+    float sum = 0.0, diag = 0.0;
+
+    for(i = 0; i < classes; ++i)
+    {
+        for(j = 0; j < classes; ++j)
+            sum += conf[j][i];
+
+        diag += conf[i][i];
+    }
+
+    return diag / sum;
+}
+
+
+float calculate_precision (float** conf, int classes)
+{
+    int i, j;
+    float mean = 0.0;
+
+    for(i = 0; i < classes; ++i)
+    {
+        float sum = 0.0;
+
+        for(j = 0; j < classes; ++j)
+            sum += conf[j][i];
+
+        mean += (conf[i][i] / sum);
+    }
+
+    return mean / classes;
+}
+
+
+
+//========================================================================================================================
 
 
 
@@ -408,12 +464,12 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
         free_data(train);
         if(*net->seen/N > epoch){
             epoch = *net->seen/N;
-            char buff[256];
+            char buff[1024];
             sprintf(buff, "%s/%s_%d.weights",backup_directory,base, epoch);
             save_weights(net, buff);
         }
         if(get_current_batch(net)%1000 == 0){
-            char buff[256];
+            char buff[1024];
             sprintf(buff, "%s/%s.backup",backup_directory,base);
             save_weights(net, buff);
         }
@@ -1341,7 +1397,7 @@ void run_classifier(int argc, char **argv)
     int patience = option_find_int(options, "patience", 10);
     int seed = option_find_int(options, "seed", -1);
     char* metric_name = option_find_str(options, "metric", "accuracy");
-    char* training_log = option_find_str(options, "training-log", "training_log.txt");
+    char* training_log = option_find_str(options, "training_log", "training_log.txt");
     TRAIN_METRIC metric;
 
     eval_epochs = find_int_arg(argc, argv, "-eval_epochs", eval_epochs);
@@ -1349,10 +1405,11 @@ void run_classifier(int argc, char **argv)
     patience = find_int_arg(argc, argv, "-patience", patience);
     seed = find_int_arg(argc, argv, "-seed", seed);
     metric_name = find_char_arg(argc, argv, "-metric", metric_name);
-    training_log = find_char_arg(argc, argv, "-training-log", training_log);
+    training_log = find_char_arg(argc, argv, "-training_log", training_log);
 
-    if(strcmp(metric_name, "accuracy") == 0)
-        metric = ACCURACY;
+    if(strcmp(metric_name, "accuracy") == 0) metric = ACCURACY;
+    else if(strcmp(metric_name, "precision")) metric = PRECISION;
+    else metric = ACCURACY;
 
     char *weights = (argc > 5) ? argv[5] : 0;
     char *filename = (argc > 6) ? argv[6]: 0;
