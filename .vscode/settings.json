@@ -1,6 +1,6 @@
 {
     "files.associations": {
-        "parser.h": "c",
-        "assert.h": "c"
+        "cmath": "c",
+        "cstdlib": "c"
     }
 }

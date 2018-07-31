@@ -10,17 +10,27 @@
 
 float** calculate_confusion_matrix (char*, char*, char*, char*);
 
-float calculate_metric (float, float);
+float safe_division (float, float);
 
 float calculate_accuracy (float**, int);
 
 float calculate_precision (float**, int);
 
+float calculate_recall (float**, int);
 
-typedef float (*Evaluation_Metric)(float**, int);
+float calculate_neg_precision (float**, int);
+
+float calculate_specificity (float**, int);
+
+void output_training_log (FILE*, int, float**, float**, int, size_t);
 
 
-typedef enum { ACCURACY, PRECISION, F1_SCORE, LOSS, NUM_METRICS } TRAIN_METRIC;
+
+
+typedef float (*EvaluationMetric)(float**, int);
+
+
+typedef enum { ACCURACY, PRECISION, RECALL, NEG_PRECISION, SPECIFICITY, NUM_METRICS } TRAIN_METRIC;
 
 typedef struct
 {
@@ -29,9 +39,11 @@ typedef struct
     int max_epochs;
     int patience;
     int seed;
-    char* training_log;
+    char* log_file;
+    size_t log_output;
 
 } SSM_Params;
 
 
-extern const Evaluation_Metric evaluation_metrics[NUM_METRICS];
+extern const EvaluationMetric evaluation_metrics[NUM_METRICS];
+extern const char* evaluation_metric_names[NUM_METRICS];
