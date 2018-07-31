@@ -16,71 +16,80 @@ float *get_regression_values(char **labels, int n)
     return v;
 }
 
-void print_net(network *net)
+void write_net_file(network *net, char *backup_dir)
 {
-  printf("width: %d",net->w);
-  printf("height: %d",net->h);
-  printf("channels: %d",net->c);
 
-  // int n;
-  //     int batch;
-  //     size_t *seen;
-  //     int *t;
-  //     float epoch;
-  //     int subdivisions;
-  //     layer *layers;
-  //     float *output;
-  //     learning_rate_policy policy;
-  //
-  //     float learning_rate;
-  //     float momentum;
-  //     float decay;
-  //     float gamma;
-  //     float scale;
-  //     float power;
-  //     int time_steps;
-  //     int step;
-  //     int max_batches;
-  //     float *scales;
-  //     int   *steps;
-  //     int num_steps;
-  //     int burn_in;
-  //
-  //     int adam;
-  //     float B1;
-  //     float B2;
-  //     float eps;
-  //
-  //     int inputs;
-  //     int outputs;
-  //     int truths;
-  //     int notruth;
-  //     int h, w, c;
-  //     int max_crop;
-  //     int min_crop;
-  //     float max_ratio;
-  //     float min_ratio;
-  //     int center;
-  //     float angle;
-  //     float aspect;
-  //     float exposure;
-  //     float saturation;
-  //     float hue;
-  //     int random;
-  //
-  //     int gpu_index;
-  //     tree *hierarchy;
-  //
-  //     float *input;
-  //     float *truth;
-  //     float *delta;
-  //     float *workspace;
-  //     int train;
-  //     int index;
-  //     float *cost;
-  // float clip;
+  char file_path[1024];
+  sprintf(file_path, "%s/training_summary.json",backup_dir);
+  FILE * fp = fopen (file_path, "w+");
 
+  fprintf(fp, "{\n");
 
+  fprintf(fp, "  \"parameters\": \n");
+  fprintf(fp, "  {\n\n");
+
+  fprintf(fp, "    \"width\": %d,\n",net->w);
+  fprintf(fp, "    \"height\": %d,\n",net->h);
+  fprintf(fp, "    \"channels\": %d,\n",net->c);
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"batch\": %d,\n",net->batch);
+  fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
+  fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
+  fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
+  fprintf(fp, "    \"decay\": %f,\n",net->decay);
+  fprintf(fp, "    \"gamma\": %f,\n",net->gamma);
+  fprintf(fp, "    \"power\": %f,\n",net->power);
+  fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
+  fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
+  fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
+  if(net->num_steps > 0)
+  {
+    fprintf(fp, "    \"steps\": [");
+      for (int i=0; i<net->num_steps; i++) {
+        fprintf(fp, "%d",net->steps[i]);
+        if (i<net->num_steps-1)
+          fprintf(fp, ",");
+      }
+    fprintf(fp, "],\n");
+  }
+  if(net->num_steps > 0)
+  {
+    fprintf(fp, "    \"scales\": [");
+      for (int i=0; i<net->num_steps; i++) {
+        fprintf(fp, "%f",net->scales[i]);
+        if (i<net->num_steps-1)
+          fprintf(fp, ",");
+      }
+    fprintf(fp, "],\n");
+  }
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"adam\": %d,\n",net->adam);
+  fprintf(fp, "    \"B1\": %f,\n",net->B1);
+  fprintf(fp, "    \"B2\": %f,\n",net->B2);
+  fprintf(fp, "    \"eps\": %f,\n",net->eps);
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
+  fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
+  fprintf(fp, "    \"max_ratio\": %f,\n",net->max_ratio);
+  fprintf(fp, "    \"min_ratio\": %f,\n",net->min_ratio);
+  fprintf(fp, "    \"center\": %d,\n",net->center);
+  fprintf(fp, "    \"angle\": %f,\n",net->angle);
+  fprintf(fp, "    \"aspect\": %f,\n",net->aspect);
+  fprintf(fp, "    \"exposure\": %f,\n",net->exposure);
+  fprintf(fp, "    \"saturation\": %f,\n",net->saturation);
+  fprintf(fp, "    \"hue\": %f,\n",net->hue);
+  fprintf(fp, "    \"random\": %d\n",net->random);
+
+  fprintf(fp, "  }\n");
+  fprintf(fp, "}\n");
+
+  fclose(fp);
 }
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
@@ -108,9 +117,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         nets[i]->learning_rate *= ngpus;
     }
 
-    // print network hiper-parameters
-    print_net(nets[0]);
-
     srand(params.seed == -1 ? time(0) : params.seed);
 
     network *net = nets[0];
@@ -126,6 +132,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     char *tree = option_find_str(options, "tree", 0);
     if (tree) net->hierarchy = read_tree(tree);
     int classes = option_find_int(options, "classes", 2);
+
+    // print network hiper-parameters
+    write_net_file(nets[0], backup_directory);
 
     char **labels = 0;
 
