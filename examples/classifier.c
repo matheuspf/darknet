@@ -16,11 +16,11 @@ float *get_regression_values(char **labels, int n)
     return v;
 }
 
-void print_net(network *)
+void print_net(network *net)
 {
-  printf("width: %d",network->w);
-  printf("height: %d",network->h);
-  printf("channels: %d",network->c);
+  printf("width: %d",net->w);
+  printf("height: %d",net->h);
+  printf("channels: %d",net->c);
 
   // int n;
   //     int batch;
