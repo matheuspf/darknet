@@ -24,8 +24,11 @@ float calculate_specificity (float**, int);
 
 void output_training_log (FILE*, int, float**, float**, int, size_t);
 
-
-
+typedef struct
+{
+    float** training;
+    float** validation;
+} EpochConfusionMatrices;
 
 typedef float (*EvaluationMetric)(float**, int);
 

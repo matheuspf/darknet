@@ -17,80 +17,133 @@ float *get_regression_values(char **labels, int n)
     return v;
 }
 
-void write_net_file(network *net, char *backup_dir)
+void write_summary_hyperparameters(FILE *fp, const network *net)
 {
+    fprintf(fp, "  \"parameters\":\n");
+    fprintf(fp, "  {\n\n");
 
-  char file_path[1024];
-  sprintf(file_path, "%s/training_summary.json",backup_dir);
-  FILE * fp = fopen (file_path, "w+");
+    fprintf(fp, "    \"width\": %d,\n",net->w);
+    fprintf(fp, "    \"height\": %d,\n",net->h);
+    fprintf(fp, "    \"channels\": %d,\n",net->c);
+    fprintf(fp, "\n");
 
-  fprintf(fp, "{\n");
+    fprintf(fp, "    \"batch\": %d,\n",net->batch);
+    fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
+    fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
+    fprintf(fp, "\n");
 
-  fprintf(fp, "  \"parameters\": \n");
-  fprintf(fp, "  {\n\n");
+    fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
+    fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
+    fprintf(fp, "    \"decay\": %f,\n",net->decay);
+    fprintf(fp, "    \"gamma\": %f,\n",net->gamma);
+    fprintf(fp, "    \"power\": %f,\n",net->power);
+    fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
+    fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
+    fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
+    if(net->num_steps > 0)
+    {
+        fprintf(fp, "    \"steps\": [");
+        for (int i=0; i<net->num_steps; i++) {
+            fprintf(fp, "%d",net->steps[i]);
+            if (i<net->num_steps-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "],\n");
+    }
+    if(net->num_steps > 0)
+    {
+        fprintf(fp, "    \"scales\": [");
+        for (int i=0; i<net->num_steps; i++) {
+            fprintf(fp, "%f",net->scales[i]);
+            if (i<net->num_steps-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "],\n");
+    }
+    fprintf(fp, "\n");
 
-  fprintf(fp, "    \"width\": %d,\n",net->w);
-  fprintf(fp, "    \"height\": %d,\n",net->h);
-  fprintf(fp, "    \"channels\": %d,\n",net->c);
-  fprintf(fp, "  \n");
+    fprintf(fp, "    \"adam\": %d,\n",net->adam);
+    fprintf(fp, "    \"B1\": %f,\n",net->B1);
+    fprintf(fp, "    \"B2\": %f,\n",net->B2);
+    fprintf(fp, "    \"eps\": %f,\n",net->eps);
+    fprintf(fp, "\n");
 
-  fprintf(fp, "    \"batch\": %d,\n",net->batch);
-  fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
-  fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
-  fprintf(fp, "  \n");
+    fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
+    fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
+    fprintf(fp, "    \"max_ratio\": %f,\n",net->max_ratio);
+    fprintf(fp, "    \"min_ratio\": %f,\n",net->min_ratio);
+    fprintf(fp, "    \"center\": %d,\n",net->center);
+    fprintf(fp, "    \"angle\": %f,\n",net->angle);
+    fprintf(fp, "    \"aspect\": %f,\n",net->aspect);
+    fprintf(fp, "    \"exposure\": %f,\n",net->exposure);
+    fprintf(fp, "    \"saturation\": %f,\n",net->saturation);
+    fprintf(fp, "    \"hue\": %f,\n",net->hue);
+    fprintf(fp, "    \"random\": %d\n",net->random);
 
-  fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
-  fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
-  fprintf(fp, "    \"decay\": %f,\n",net->decay);
-  fprintf(fp, "    \"gamma\": %f,\n",net->gamma);
-  fprintf(fp, "    \"power\": %f,\n",net->power);
-  fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
-  fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
-  fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
-  if(net->num_steps > 0)
-  {
-    fprintf(fp, "    \"steps\": [");
-      for (int i=0; i<net->num_steps; i++) {
-        fprintf(fp, "%d",net->steps[i]);
-        if (i<net->num_steps-1)
-          fprintf(fp, ",");
-      }
-    fprintf(fp, "],\n");
-  }
-  if(net->num_steps > 0)
-  {
-    fprintf(fp, "    \"scales\": [");
-      for (int i=0; i<net->num_steps; i++) {
-        fprintf(fp, "%f",net->scales[i]);
-        if (i<net->num_steps-1)
-          fprintf(fp, ",");
-      }
-    fprintf(fp, "],\n");
-  }
-  fprintf(fp, "  \n");
+    fprintf(fp, "  }");
+}
 
-  fprintf(fp, "    \"adam\": %d,\n",net->adam);
-  fprintf(fp, "    \"B1\": %f,\n",net->B1);
-  fprintf(fp, "    \"B2\": %f,\n",net->B2);
-  fprintf(fp, "    \"eps\": %f,\n",net->eps);
-  fprintf(fp, "  \n");
+void write_summary_metrics(FILE *fp, float **confusion_matrix_train, float **confusion_matrix_valid, int classes)
+{
+    if (confusion_matrix_train == NULL && confusion_matrix_valid == NULL) {
+        fprintf(fp, "  \"evaluation\": {}");
+        return;
+    }
 
-  fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
-  fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
-  fprintf(fp, "    \"max_ratio\": %f,\n",net->max_ratio);
-  fprintf(fp, "    \"min_ratio\": %f,\n",net->min_ratio);
-  fprintf(fp, "    \"center\": %d,\n",net->center);
-  fprintf(fp, "    \"angle\": %f,\n",net->angle);
-  fprintf(fp, "    \"aspect\": %f,\n",net->aspect);
-  fprintf(fp, "    \"exposure\": %f,\n",net->exposure);
-  fprintf(fp, "    \"saturation\": %f,\n",net->saturation);
-  fprintf(fp, "    \"hue\": %f,\n",net->hue);
-  fprintf(fp, "    \"random\": %d\n",net->random);
+    fprintf(fp, "  \"evaluation\":\n");
+    fprintf(fp, "  {\n");
 
-  fprintf(fp, "  }\n");
-  fprintf(fp, "}\n");
+    // Save training metrics
+    fprintf(fp, "    \"training_set\":\n");
+    fprintf(fp, "    {\n");
 
-  fclose(fp);
+    for(int i = 0; i < NUM_METRICS; ++i) {
+        fprintf(fp, "      \"%s\": %f", evaluation_metric_names[i],
+                evaluation_metrics[i](confusion_matrix_train, classes));
+
+        if(i < NUM_METRICS - 1) {
+            fprintf(fp, ",\n");
+        }
+    }
+
+    // Save evaluation metrics
+    fprintf(fp, "\n");
+    fprintf(fp, "    },\n");
+    fprintf(fp, "    \"validation_set\":\n");
+    fprintf(fp, "    {\n");
+    for(int i = 0; i < NUM_METRICS; ++i) {
+        fprintf(fp, "      \"%s\": %f", evaluation_metric_names[i],
+                evaluation_metrics[i](confusion_matrix_valid, classes));
+
+        if(i < NUM_METRICS - 1) {
+            fprintf(fp, ",\n");
+        }
+    }
+    fprintf(fp, "\n");
+    fprintf(fp, "    }\n");
+    fprintf(fp, "  }");
+}
+
+void save_training_summary(network *net, char *backup_dir, float **confusion_matrix_train, float **confusion_matrix_valid, int classes)
+{
+    char file_path[1024];
+    sprintf(file_path, "%s/training_summary.json",backup_dir);
+    FILE * fp = fopen (file_path, "w+");
+
+    fprintf(fp, "{\n");
+    write_summary_hyperparameters(fp, net);
+    fprintf(fp, ",\n");
+    write_summary_metrics(fp, confusion_matrix_train, confusion_matrix_valid, classes);
+    fprintf(fp, "\n}\n");
+
+    fclose(fp);
+}
+
+void free_confusion_matrices(int classes, float **confusion_train, float **confusion_valid)
+{
+    for(int j = 0; j < classes; ++j)
+        free(confusion_train[j]), free(confusion_valid[j]);
+    free(confusion_train), free(confusion_valid);
 }
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
@@ -133,9 +186,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     char *tree = option_find_str(options, "tree", 0);
     if (tree) net->hierarchy = read_tree(tree);
     int classes = option_find_int(options, "classes", 2);
-
-    // print network hiper-parameters
-    write_net_file(nets[0], backup_directory);
 
     char **labels = 0;
 
@@ -188,8 +238,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int bad_epochs = -1, update_epoch = 0;
     int epoch = (*net->seen)/N, count = 0;
 
+    EpochConfusionMatrices best_confusion_matrices = {NULL, NULL};
 
-    while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches){
+    while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches) {
         if(net->random && count++%40 == 0){
             printf("Resizing\n");
             int dim = (rand() % 11 + 4) * 32;
@@ -254,18 +305,23 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
             output_training_log(log_file, epoch, confusion_train, confusion_valid, classes, params.log_output);
 
-            for(j = 0; j < classes; ++j)
-                free(confusion_train[j]), free(confusion_valid[j]);
-            free(confusion_train), free(confusion_valid);
-
             //printf("\n\nTrain metric: %f\nValidation metric: %f\n\n\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
             //fprintf(log_file, "%f %f\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
             
-
-            if(valid_accs[cur_epoch] > best_acc){
+            if(valid_accs[cur_epoch] > best_acc) {
                 best_acc = valid_accs[cur_epoch];
                 sprintf(buff, "%s/%s-best.weights",backup_directory,base);
                 save_weights(net, buff);
+
+                // Update best confusion matrices
+                if (best_confusion_matrices.training != NULL) {
+                    free_confusion_matrices(classes, confusion_train, confusion_valid);
+                }
+                best_confusion_matrices.training = confusion_train;
+                best_confusion_matrices.validation = confusion_valid;
+
+            } else {
+                free_confusion_matrices(classes, confusion_train, confusion_valid);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -275,6 +331,13 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
                 break;
         }
     }
+
+    // Save training summary
+    save_training_summary(nets[0],
+                          backup_directory,
+                          best_confusion_matrices.training,
+                          best_confusion_matrices.validation,
+                          classes);
 
     char buff[1024];
     sprintf(buff, "%s/%s.weights", backup_directory, base);
