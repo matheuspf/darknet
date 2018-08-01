@@ -17,6 +17,81 @@ float *get_regression_values(char **labels, int n)
     return v;
 }
 
+void write_net_file(network *net, char *backup_dir)
+{
+
+  char file_path[1024];
+  sprintf(file_path, "%s/training_summary.json",backup_dir);
+  FILE * fp = fopen (file_path, "w+");
+
+  fprintf(fp, "{\n");
+
+  fprintf(fp, "  \"parameters\": \n");
+  fprintf(fp, "  {\n\n");
+
+  fprintf(fp, "    \"width\": %d,\n",net->w);
+  fprintf(fp, "    \"height\": %d,\n",net->h);
+  fprintf(fp, "    \"channels\": %d,\n",net->c);
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"batch\": %d,\n",net->batch);
+  fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
+  fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
+  fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
+  fprintf(fp, "    \"decay\": %f,\n",net->decay);
+  fprintf(fp, "    \"gamma\": %f,\n",net->gamma);
+  fprintf(fp, "    \"power\": %f,\n",net->power);
+  fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
+  fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
+  fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
+  if(net->num_steps > 0)
+  {
+    fprintf(fp, "    \"steps\": [");
+      for (int i=0; i<net->num_steps; i++) {
+        fprintf(fp, "%d",net->steps[i]);
+        if (i<net->num_steps-1)
+          fprintf(fp, ",");
+      }
+    fprintf(fp, "],\n");
+  }
+  if(net->num_steps > 0)
+  {
+    fprintf(fp, "    \"scales\": [");
+      for (int i=0; i<net->num_steps; i++) {
+        fprintf(fp, "%f",net->scales[i]);
+        if (i<net->num_steps-1)
+          fprintf(fp, ",");
+      }
+    fprintf(fp, "],\n");
+  }
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"adam\": %d,\n",net->adam);
+  fprintf(fp, "    \"B1\": %f,\n",net->B1);
+  fprintf(fp, "    \"B2\": %f,\n",net->B2);
+  fprintf(fp, "    \"eps\": %f,\n",net->eps);
+  fprintf(fp, "  \n");
+
+  fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
+  fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
+  fprintf(fp, "    \"max_ratio\": %f,\n",net->max_ratio);
+  fprintf(fp, "    \"min_ratio\": %f,\n",net->min_ratio);
+  fprintf(fp, "    \"center\": %d,\n",net->center);
+  fprintf(fp, "    \"angle\": %f,\n",net->angle);
+  fprintf(fp, "    \"aspect\": %f,\n",net->aspect);
+  fprintf(fp, "    \"exposure\": %f,\n",net->exposure);
+  fprintf(fp, "    \"saturation\": %f,\n",net->saturation);
+  fprintf(fp, "    \"hue\": %f,\n",net->hue);
+  fprintf(fp, "    \"random\": %d\n",net->random);
+
+  fprintf(fp, "  }\n");
+  fprintf(fp, "}\n");
+
+  fclose(fp);
+}
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
 {
@@ -42,7 +117,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         nets[i] = load_network(cfgfile, weightfile, clear);
         nets[i]->learning_rate *= ngpus;
     }
-    
+
     srand(params.seed == -1 ? time(0) : params.seed);
 
     network *net = nets[0];
@@ -59,6 +134,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     char *tree = option_find_str(options, "tree", 0);
     if (tree) net->hierarchy = read_tree(tree);
     int classes = option_find_int(options, "classes", 2);
+
+    // print network hiper-parameters
+    write_net_file(nets[0], backup_directory);
 
     char **labels = 0;
 
@@ -120,8 +198,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0;
     int epoch = (*net->seen)/N, count = 0;
-    
-    
+
+
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches){
         if(net->random && count++%40 == 0){
             printf("Resizing\n");
@@ -226,6 +304,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     //free(valid_accs);
     //free(train_accs);
+    fclose(log_file);
     //free(base);
 }
 
@@ -1128,15 +1207,15 @@ void threat_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_i
         float *predictions = network_predict(net, in_s.data);
         float curr_threat = 0;
         if(1){
-            curr_threat = predictions[0] * 0 + 
-                predictions[1] * .6 + 
+            curr_threat = predictions[0] * 0 +
+                predictions[1] * .6 +
                 predictions[2];
         } else {
             curr_threat = predictions[218] +
-                predictions[539] + 
-                predictions[540] + 
-                predictions[368] + 
-                predictions[369] + 
+                predictions[539] +
+                predictions[540] +
+                predictions[368] +
+                predictions[369] +
                 predictions[370];
         }
         threat = roll * curr_threat + (1-roll) * threat;
@@ -1144,24 +1223,24 @@ void threat_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_i
         draw_box_width(out, x2 + border, y1 + .02*h, x2 + .5 * w, y1 + .02*h + border, border, 0,0,0);
         if(threat > .97) {
             draw_box_width(out,  x2 + .5 * w + border,
-                    y1 + .02*h - 2*border, 
-                    x2 + .5 * w + 6*border, 
+                    y1 + .02*h - 2*border,
+                    x2 + .5 * w + 6*border,
                     y1 + .02*h + 3*border, 3*border, 1,0,0);
         }
         draw_box_width(out,  x2 + .5 * w + border,
-                y1 + .02*h - 2*border, 
-                x2 + .5 * w + 6*border, 
+                y1 + .02*h - 2*border,
+                x2 + .5 * w + 6*border,
                 y1 + .02*h + 3*border, .5*border, 0,0,0);
         draw_box_width(out, x2 + border, y1 + .42*h, x2 + .5 * w, y1 + .42*h + border, border, 0,0,0);
         if(threat > .57) {
             draw_box_width(out,  x2 + .5 * w + border,
-                    y1 + .42*h - 2*border, 
-                    x2 + .5 * w + 6*border, 
+                    y1 + .42*h - 2*border,
+                    x2 + .5 * w + 6*border,
                     y1 + .42*h + 3*border, 3*border, 1,1,0);
         }
         draw_box_width(out,  x2 + .5 * w + border,
-                y1 + .42*h - 2*border, 
-                x2 + .5 * w + 6*border, 
+                y1 + .42*h - 2*border,
+                x2 + .5 * w + 6*border,
                 y1 + .42*h + 3*border, .5*border, 0,0,0);
 
         draw_box_width(out, x1, y1, x2, y2, border, 0,0,0);
@@ -1228,7 +1307,7 @@ void gun_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_inde
     int *indexes = calloc(top, sizeof(int));
 
     if(!cap) error("Couldn't connect to webcam.\n");
-    cvNamedWindow("Threat Detection", CV_WINDOW_NORMAL); 
+    cvNamedWindow("Threat Detection", CV_WINDOW_NORMAL);
     cvResizeWindow("Threat Detection", 512, 512);
     float fps = 0;
     int i;
@@ -1315,7 +1394,7 @@ void demo_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_ind
     int *indexes = calloc(top, sizeof(int));
 
     if(!cap) error("Couldn't connect to webcam.\n");
-    cvNamedWindow(base, CV_WINDOW_NORMAL); 
+    cvNamedWindow(base, CV_WINDOW_NORMAL);
     cvResizeWindow(base, 512, 512);
     float fps = 0;
     int i;
@@ -1406,6 +1485,7 @@ void run_classifier(int argc, char **argv)
     metric_name = find_char_arg(argc, argv, "-metric", metric_name);
     log_file = find_char_arg(argc, argv, "-log_file", log_file);
     log_output = find_int_arg(argc, argv, "-log_output", log_output);
+
 
     if(strcmp(metric_name, "accuracy") == 0) metric = ACCURACY;
     else if(strcmp(metric_name, "precision") == 0) metric = PRECISION;
