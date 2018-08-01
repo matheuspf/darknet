@@ -6,31 +6,10 @@
 #include <assert.h>
 
 #include "../src/parser.h"
+#include "../src/metrics.h"
 
 
-float** calculate_confusion_matrix (char*, char*, char*, char*);
-
-float safe_division (float, float);
-
-float calculate_accuracy (float**, int);
-
-float calculate_precision (float**, int);
-
-float calculate_recall (float**, int);
-
-float calculate_neg_precision (float**, int);
-
-float calculate_specificity (float**, int);
-
-void output_training_log (FILE*, int, float**, float**, int, size_t);
-
-
-
-
-typedef float (*EvaluationMetric)(float**, int);
-
-
-typedef enum { ACCURACY, PRECISION, RECALL, NEG_PRECISION, SPECIFICITY, NUM_METRICS } TRAIN_METRIC;
+typedef enum { ACCURACY, PRECISION, RECALL, NPV, SPECIFICITY, F1_SCORE, NUM_METRICS } TRAIN_METRIC;
 
 typedef struct
 {
@@ -45,5 +24,12 @@ typedef struct
 } SSM_Params;
 
 
-extern const EvaluationMetric evaluation_metrics[NUM_METRICS];
+extern const ScoreMetric evaluation_metrics[NUM_METRICS];
 extern const char* evaluation_metric_names[NUM_METRICS];
+
+
+void train_classifier_valid(char*, char*, char*, int*, int, int, SSM_Params);
+
+float** get_predictions (char*, char*, char*, char*, float**, int*);
+
+void output_training_log (FILE*, int, int*, float**, int, int*, float**, int, int, size_t);

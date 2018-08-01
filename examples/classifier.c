@@ -1,7 +1,7 @@
 #include "classifier.h"
 
-const EvaluationMetric evaluation_metrics[NUM_METRICS] = { calculate_accuracy, calculate_precision, calculate_recall, calculate_neg_precision, calculate_specificity };
-const char* evaluation_metric_names[NUM_METRICS] = { "accuracy", "precision", "recall", "negative precision", "specificity" };
+const ScoreMetric evaluation_metrics[NUM_METRICS] = { accuracy_score, precision_score, recall_score, npv_score, specificity_score, f1_score };
+const char* evaluation_metric_names[NUM_METRICS] = { "accuracy", "precision", "recall", "npv", "specificity", "f1" };
 
 
 
@@ -28,7 +28,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     network **nets = calloc(ngpus, sizeof(network*));
 
-    EvaluationMetric eval = evaluation_metrics[params.metric];
+    ScoreMetric metric = evaluation_metrics[params.metric];
 
 
     srand(time(0));
@@ -55,6 +55,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int tag = option_find_int_quiet(options, "tag", 0);
     char *label_list = option_find_str(options, "labels", "data/labels.list");
     char *train_list = option_find_str(options, "train", "data/train.list");
+    char *valid_list = option_find_str(options, "valid", "data/valid.list");
     char *tree = option_find_str(options, "tree", 0);
     if (tree) net->hierarchy = read_tree(tree);
     int classes = option_find_int(options, "classes", 2);
@@ -67,6 +68,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     list *plist = get_paths(train_list);
     char **paths = (char **)list_to_array(plist);
     int N = plist->size;
+
+    list *plist_valid = get_paths(valid_list);
+    int N_valid = plist_valid->size;
+
+
     double time;
 
     load_args args = {0};
@@ -103,6 +109,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     int total_max_epochs = params.max_epochs / params.eval_epochs;
     total_max_epochs = total_max_epochs > 1 ? total_max_epochs : 1;
+
+    float** y_score_train = new_mat(N, classes, sizeof(float));
+    float** y_score_valid = new_mat(N_valid, classes, sizeof(float));
+    int* y_true_train = malloc(N * sizeof(int));
+    int* y_true_valid = malloc(N_valid * sizeof(int));
 
     float *train_accs = malloc(total_max_epochs * sizeof(float));
     float *valid_accs = malloc(total_max_epochs * sizeof(float));
@@ -152,14 +163,14 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         loss = train_network(net, train);
 #endif
         //printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
-        //    get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
+        //  get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
         free_data(train);
 
         if(*net->seen/N > epoch) {
             epoch = *net->seen/N;
             update_epoch = 1;
         }
-/*  */
+
         if(update_epoch && (epoch % params.eval_epochs) == 0){
             char buff[1024];
             sprintf(buff, "%s/%s.weights",backup_directory, base);
@@ -167,22 +178,21 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             update_epoch = 0;
 
             int cur_epoch = epoch / params.eval_epochs;
+            get_predictions(datacfg, cfgfile, buff, "train", y_score_train, y_true_train);
+            get_predictions(datacfg, cfgfile, buff, "valid", y_score_valid, y_true_valid);
 
-            float** confusion_train = calculate_confusion_matrix(datacfg, cfgfile, buff, "train");
-            float** confusion_valid = calculate_confusion_matrix(datacfg, cfgfile, buff, "valid");
+            int* preds = top_prediction(y_score_train, N, classes);
+            float** cf_mat = confusion_matrix(y_true_train, preds, N, classes);
 
-            train_accs[cur_epoch] = eval(confusion_train, classes);
-            valid_accs[cur_epoch] = eval(confusion_valid, classes);
+            int sum = 0, l;
 
-            output_training_log(log_file, epoch, confusion_train, confusion_valid, classes, params.log_output);
+            for(l = 0; l < classes; ++l)
+                sum += cf_mat[l][l];
 
-            for(j = 0; j < classes; ++j)
-                free(confusion_train[j]), free(confusion_valid[j]);
-            free(confusion_train), free(confusion_valid);
+            train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
+            valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
 
-            //printf("\n\nTrain metric: %f\nValidation metric: %f\n\n\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
-            //fprintf(log_file, "%f %f\n", train_accs[cur_epoch], valid_accs[cur_epoch]);
-            
+            output_training_log(stdout, epoch, y_true_train, y_score_train, N, y_true_valid, y_score_valid, N_valid, classes, params.log_output);
 
             if(valid_accs[cur_epoch] > best_acc){
                 best_acc = valid_accs[cur_epoch];
@@ -203,20 +213,24 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     save_weights(net, buff);
     pthread_join(load_thread, 0);
 
+    fclose(log_file);
+
     free_network(net);
-    if(labels) free_ptrs((void**)labels, classes);
-    free_ptrs((void**)paths, plist->size);
-    free_list(plist);
+
+    // if(labels) free_ptrs((void**)labels, classes);
+    // free_ptrs((void**)paths, plist->size);
+    // free_list(plist);
+
+    // del_mat(y_score_train, N), del_mat(y_score_valid, N_valid);
+    // free(y_true_train), free(y_true_valid);
+
     //free(valid_accs);
     //free(train_accs);
-    fclose(log_file);
     //free(base);
 }
 
 
-
-
-float** calculate_confusion_matrix (char *datacfg, char *filename, char *weightfile, char* set_name)
+float** get_predictions (char *datacfg, char *filename, char *weightfile, char* set_name, float** y_score, int* y_true)
 {
     int i, j;
     network *net = load_network(filename, weightfile, 0);
@@ -239,15 +253,7 @@ float** calculate_confusion_matrix (char *datacfg, char *filename, char *weightf
     int m = plist->size;
     free_list(plist);
 
-    float avg_acc = 0;
-    float avg_topk = 0;
-    int *indexes = calloc(topk, sizeof(int));
-
-    float** confusion_matrix = malloc(classes * sizeof(float*));
-
-    for(i = 0; i < classes; ++i)
-        confusion_matrix[i] = calloc(classes, sizeof(float));
-
+    float acc = 0;
 
     for(i = 0; i < m; ++i){
         int class = -1;
@@ -265,128 +271,37 @@ float** calculate_confusion_matrix (char *datacfg, char *filename, char *weightf
 
         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
 
+
+        float maxp = -1e4;
+        int l, pos = 0;
+
+        for(l = 0; l < classes; ++l)
+            if(maxp < pred[l])
+                maxp = pred[l], pos = l;
+
+        acc += (pos == class);
+
+
         free_image(im);
         free_image(crop);
-        top_k(pred, classes, topk, indexes);
 
-        if(indexes[0] == class) avg_acc += 1;
+        for(l = 0; l < classes; ++l)
+            y_score[i][l] = pred[l];
 
-        for(j = 0; j < topk; ++j)
-            if(indexes[j] == class) avg_topk += 1;
-
-        confusion_matrix[class][indexes[0]]++;
+        y_true[i] = class;
     }
 
-    free(indexes);
+
     free_network(net);
     free(paths);
     
-    return confusion_matrix;
+    return y_score;
 }
 
 
 
-float safe_division (float num, float den)
-{
-    return fabs(den) < 1e-8 ? 0.0 : num / den;
-}
-
-
-float calculate_accuracy (float** confusion_matrix, int classes)
-{
-    int i, j;
-    float sum = 0.0, diag = 0.0;
-
-    for(i = 0; i < classes; ++i)
-    {
-        for(j = 0; j < classes; ++j)
-            sum += confusion_matrix[j][i];
-
-        diag += confusion_matrix[i][i];
-    }
-
-    return diag / sum;
-}
-
-
-float calculate_precision (float** confusion_matrix, int classes)
-{
-    int i, j;
-    float mean = 0.0;
-
-    for(i = 0; i < classes; ++i)
-    {
-        float sum = 0.0;
-
-        for(j = 0; j < classes; ++j)
-            sum += confusion_matrix[j][i];
-
-        mean += safe_division(confusion_matrix[i][i], sum);
-    }
-
-    return mean / classes;
-}
-
-
-float calculate_recall (float** confusion_matrix, int classes)
-{
-    int i, j;
-    float mean = 0.0;
-
-    for(i = 0; i < classes; ++i)
-    {
-        float sum = 0.0;
-
-        for(j = 0; j < classes; ++j)
-            sum += confusion_matrix[i][j];
-
-        mean += (confusion_matrix[i][i] / sum);
-    }
-
-    return mean / classes;
-}
-
-
-float calculate_neg_precision (float** confusion_matrix, int classes)
-{
-    int i, j, k;
-    float mean = 0.0;
-
-    for(i = 0; i < classes; ++i)
-    {
-        float num = 0.0, den = 0.0;
-
-        for(j = 0; j < classes; ++j)
-            for(k = 0; k < classes; ++k)
-                num += confusion_matrix[j][k] * (i != k), den += confusion_matrix[j][k];
-
-        mean += (num / den);
-    }
-
-    return mean / classes;
-}
-
-float calculate_specificity (float** confusion_matrix, int classes)
-{
-    int i, j, k;
-    float mean = 0.0;
-
-    for(i = 0; i < classes; ++i)
-    {
-        float num = 0.0, den = 0.0;
-
-        for(j = 0; j < classes; ++j)
-            for(k = 0; k < classes; ++k)
-                num += confusion_matrix[j][k] * (i != j), den += confusion_matrix[j][k];
-
-        mean += (num / den);
-    }
-
-    return mean / classes;
-}
-
-
-void output_training_log (FILE* file, int epoch, float** confusion_matrix_train, float** confusion_matrix_valid, int classes, size_t options)
+void output_training_log (FILE* file, int epoch, int* y_true_train, float** y_score_train, int N_train, 
+                          int* y_true_valid, float** y_score_valid, int N_valid, int classes, size_t options)
 {
     int i;
 
@@ -403,7 +318,8 @@ void output_training_log (FILE* file, int epoch, float** confusion_matrix_train,
     fprintf(file, "%d", epoch);
 
     for(i = 0; i < NUM_METRICS; ++i) if((1 << i) & options)
-        fprintf(file, ", %f, %f", evaluation_metrics[i](confusion_matrix_train, classes), evaluation_metrics[i](confusion_matrix_valid, classes));
+        fprintf(file, ", %f, %f", evaluation_metrics[i](y_true_train, y_score_train, N_train, classes),
+            evaluation_metrics[i](y_true_valid, y_score_valid, N_valid, classes));
 
     fputs("\n", file);
     fflush(file);
@@ -1491,9 +1407,12 @@ void run_classifier(int argc, char **argv)
     log_file = find_char_arg(argc, argv, "-log_file", log_file);
     log_output = find_int_arg(argc, argv, "-log_output", log_output);
 
-
     if(strcmp(metric_name, "accuracy") == 0) metric = ACCURACY;
-    else if(strcmp(metric_name, "precision")) metric = PRECISION;
+    else if(strcmp(metric_name, "precision") == 0) metric = PRECISION;
+    else if(strcmp(metric_name, "recall") == 0) metric = RECALL;
+    else if(strcmp(metric_name, "npv") == 0) metric = NPV;
+    else if(strcmp(metric_name, "specificity") == 0) metric = SPECIFICITY;    
+    else if(strcmp(metric_name, "f1") == 0) metric = F1_SCORE;    
     else metric = ACCURACY;
 
     char *weights = (argc > 5) ? argv[5] : 0;
