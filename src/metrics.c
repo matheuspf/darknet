@@ -150,6 +150,18 @@ float** confusion_matrix (int* y_true, int* y_pred, int n, int classes)
 }
 
 
+float** confusion_matrix_score (int* y_true, float** y_score, int n, int classes)
+{
+    int* y_pred = top_prediction(y_score, n, classes);
+
+    float** conf_mat = confusion_matrix(y_true, y_pred, n, classes);
+
+    free(y_pred);
+
+    return conf_mat;
+}
+
+
 float prediction_metric (int* y_true, int* y_pred, int n, int classes, ConfusionMatrixMetric metric)
 {
     float** conf_mat = confusion_matrix(y_true, y_pred, n, classes);

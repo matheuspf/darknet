@@ -33,6 +33,8 @@ int* top_prediction (float**, int, int);
 
 float** confusion_matrix (int*, int*, int, int);
 
+float** confusion_matrix_score (int*, float**, int, int);
+
 
 float prediction_metric (int*, int*, int, int, ConfusionMatrixMetric);
 
