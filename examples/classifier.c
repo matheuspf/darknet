@@ -198,6 +198,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0;
     int epoch = (*net->seen)/N, count = 0;
+    float epoch_loss = 0.0;
 
 
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches){
@@ -240,6 +241,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 #else
         loss = train_network(net, train);
 #endif
+    
+        epoch_loss += loss;
+
         //printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
         //  get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
         free_data(train);
@@ -262,15 +266,12 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             int* preds = top_prediction(y_score_train, N, classes);
             float** cf_mat = confusion_matrix(y_true_train, preds, N, classes);
 
-            int sum = 0, l;
-
-            for(l = 0; l < classes; ++l)
-                sum += cf_mat[l][l];
-
             train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
             valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
 
-            output_training_log(stdout, epoch, y_true_train, y_score_train, N, y_true_valid, y_score_valid, N_valid, classes, params.log_output);
+            output_training_log(stdout, epoch, epoch_loss, y_true_train, y_score_train, N, y_true_valid, y_score_valid, N_valid, classes, params.log_output);
+
+            epoch_loss = 0.0;
 
             if(valid_accs[cur_epoch] > best_acc){
                 best_acc = valid_accs[cur_epoch];
@@ -286,14 +287,14 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         }
     }
 
-    char buff[1024];
-    sprintf(buff, "%s/%s.weights", backup_directory, base);
-    save_weights(net, buff);
-    pthread_join(load_thread, 0);
+    // char buff[1024];
+    // sprintf(buff, "%s/%s.weights", backup_directory, base);
+    // save_weights(net, buff);
+    // pthread_join(load_thread, 0);
 
     fclose(log_file);
 
-    free_network(net);
+    //free_network(net);
 
     // if(labels) free_ptrs((void**)labels, classes);
     // free_ptrs((void**)paths, plist->size);
@@ -350,20 +351,10 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
 
         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
 
-
-        float maxp = -1e4;
-        int l, pos = 0;
-
-        for(l = 0; l < classes; ++l)
-            if(maxp < pred[l])
-                maxp = pred[l], pos = l;
-
-        acc += (pos == class);
-
-
         free_image(im);
         free_image(crop);
 
+        int l;
         for(l = 0; l < classes; ++l)
             y_score[i][l] = pred[l];
 
@@ -379,14 +370,14 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
 
 
 
-void output_training_log (FILE* file, int epoch, int* y_true_train, float** y_score_train, int N_train, 
+void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, float** y_score_train, int N_train, 
                           int* y_true_valid, float** y_score_valid, int N_valid, int classes, size_t options)
 {
     int i;
 
     if(epoch == 1)
     {
-        fprintf(file, "Epoch");
+        fprintf(file, "Epoch, Loss");
 
         for(i = 0; i < NUM_METRICS; ++i) if((1 << i) & options)
             fprintf(file, ", train_%s, valid_%s", evaluation_metric_names[i], evaluation_metric_names[i]);
@@ -394,7 +385,7 @@ void output_training_log (FILE* file, int epoch, int* y_true_train, float** y_sc
         fputs("\n", file);
     }
 
-    fprintf(file, "%d", epoch);
+    fprintf(file, "%d, %f", epoch, loss);
 
     for(i = 0; i < NUM_METRICS; ++i) if((1 << i) & options)
         fprintf(file, ", %f, %f", evaluation_metrics[i](y_true_train, y_score_train, N_train, classes),
