@@ -401,7 +401,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     //free(valid_accs);
     //free(train_accs);
-    fclose(log_file);
     //free(base);
 }
 
@@ -469,7 +468,9 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
 void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, float** y_score_train, int N_train, 
                           int* y_true_valid, float** y_score_valid, int N_valid, int classes, size_t options)
 {
-    int i;
+    int i, j, k;
+    float** conf_train = confusion_matrix_score(y_true_train, y_score_train, N_train, classes);
+    float** conf_valid = confusion_matrix_score(y_true_valid, y_score_valid, N_valid, classes);
 
     if(epoch == 1)
     {
@@ -478,7 +479,7 @@ void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, 
         for(i = 0; i < NUM_METRICS; ++i) if((1 << i) & options)
             fprintf(file, ", train_%s, valid_%s", evaluation_metric_names[i], evaluation_metric_names[i]);
 
-        fputs("\n", file);
+        fputs(", cm1_TN, cm1_FP, cm1_FN, cm1_TP, cm2_TN, cm2_FP, cm2_FN, cm2_TP\n", file);
     }
 
     fprintf(file, "%d, %f", epoch, loss);
@@ -487,8 +488,15 @@ void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, 
         fprintf(file, ", %f, %f", evaluation_metrics[i](y_true_train, y_score_train, N_train, classes),
             evaluation_metrics[i](y_true_valid, y_score_valid, N_valid, classes));
 
+    for(k = 0; k < 2; ++k)
+        for(i = 0; i < 2; ++i)
+            for(j = 0; j < 2; ++j)
+                fprintf(file, ", %d", (int)(k ? conf_valid : conf_train)[i][j]);
+
     fputs("\n", file);
     fflush(file);
+    del_mat(conf_train, classes);
+    del_mat(conf_valid, classes);
 }
 
 
