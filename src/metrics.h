@@ -26,6 +26,8 @@ float naive_auc (float*, float*, int);
 
 void* new_mat (int, int, size_t);
 
+void copy_mat(void** dst, void** src, int rows, int cols, size_t size);
+
 void del_mat (void*, int);
 
 

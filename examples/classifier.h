@@ -13,9 +13,14 @@ typedef enum { ACCURACY, PRECISION, RECALL, NPV, SPECIFICITY, F1_SCORE, NUM_METR
 
 typedef struct
 {
-    float** training;
-    float** validation;
-} EpochConfusionMatrices;
+    int* y_true_train;
+    float** y_score_train;
+    int* y_true_valid;
+    float** y_score_valid;
+    int N;
+    int N_valid;
+    int classes;
+} EpochResults;
 
 typedef struct
 {

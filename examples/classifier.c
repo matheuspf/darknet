@@ -4,6 +4,40 @@ const ScoreMetric evaluation_metrics[NUM_METRICS] = { accuracy_score, precision_
 const char* evaluation_metric_names[NUM_METRICS] = { "accuracy", "precision", "recall", "npv", "specificity", "f1" };
 
 
+void initialize_epoch_results(EpochResults* epoch_results,
+                              int N,
+                              int N_valid,
+                              int classes)
+{
+    epoch_results->y_true_train = malloc(N * sizeof(int));
+    epoch_results->y_score_train = new_mat(N, classes, sizeof(float));
+    epoch_results->y_true_valid = malloc(N_valid * sizeof(int));
+    epoch_results->y_score_valid = new_mat(N_valid, classes, sizeof(float));
+
+    epoch_results->N = N;
+    epoch_results->N_valid = N_valid;
+    epoch_results->classes = classes;
+}
+
+void destroy_epoch_results(EpochResults* epoch_results)
+{
+    free(epoch_results->y_true_train);
+    del_mat(epoch_results->y_score_train, epoch_results->N);
+    free(epoch_results->y_true_valid);
+    del_mat(epoch_results->y_score_valid, epoch_results->N_valid);
+}
+
+void copy_epoch_results(EpochResults *dst,
+                        int* y_true_train,
+                        float** y_score_train,
+                        int* y_true_valid,
+                        float** y_score_valid)
+{
+    memcpy(dst->y_true_train, y_true_train, dst->N * sizeof(int));
+    copy_mat((void**)dst->y_score_train, (void**)y_score_train, dst->N, dst->classes, sizeof(float));
+    memcpy(dst->y_true_valid, y_true_valid, dst->N_valid * sizeof(int));
+    copy_mat((void**)dst->y_score_valid, (void**)y_score_valid, dst->N_valid, dst->classes, sizeof(float));
+}
 
 float *get_regression_values(char **labels, int n)
 {
@@ -83,9 +117,10 @@ void write_summary_hyperparameters(FILE *fp, const network *net)
     fprintf(fp, "  }");
 }
 
-void write_summary_metrics(FILE *fp, float **confusion_matrix_train, float **confusion_matrix_valid, int classes)
+void write_summary_metrics(FILE *fp, EpochResults *best_epoch_results)
 {
-    if (confusion_matrix_train == NULL && confusion_matrix_valid == NULL) {
+    if (best_epoch_results == NULL ||
+        best_epoch_results->y_score_train == NULL) {
         fprintf(fp, "  \"evaluation\": {}");
         return;
     }
@@ -98,8 +133,13 @@ void write_summary_metrics(FILE *fp, float **confusion_matrix_train, float **con
     fprintf(fp, "    {\n");
 
     for(int i = 0; i < NUM_METRICS; ++i) {
-        fprintf(fp, "      \"%s\": %f", evaluation_metric_names[i],
-                evaluation_metrics[i](confusion_matrix_train, classes));
+        fprintf(fp,
+                "      \"%s\": %f",
+                evaluation_metric_names[i],
+                evaluation_metrics[i](best_epoch_results->y_true_train,
+                                      best_epoch_results->y_score_train,
+                                      best_epoch_results->N,
+                                      best_epoch_results->classes));
 
         if(i < NUM_METRICS - 1) {
             fprintf(fp, ",\n");
@@ -112,8 +152,13 @@ void write_summary_metrics(FILE *fp, float **confusion_matrix_train, float **con
     fprintf(fp, "    \"validation_set\":\n");
     fprintf(fp, "    {\n");
     for(int i = 0; i < NUM_METRICS; ++i) {
-        fprintf(fp, "      \"%s\": %f", evaluation_metric_names[i],
-                evaluation_metrics[i](confusion_matrix_valid, classes));
+        fprintf(fp,
+                "      \"%s\": %f",
+                evaluation_metric_names[i],
+                evaluation_metrics[i](best_epoch_results->y_true_valid,
+                                      best_epoch_results->y_score_valid,
+                                      best_epoch_results->N_valid,
+                                      best_epoch_results->classes));
 
         if(i < NUM_METRICS - 1) {
             fprintf(fp, ",\n");
@@ -124,7 +169,7 @@ void write_summary_metrics(FILE *fp, float **confusion_matrix_train, float **con
     fprintf(fp, "  }");
 }
 
-void save_training_summary(network *net, char *backup_dir, float **confusion_matrix_train, float **confusion_matrix_valid, int classes)
+void save_training_summary(network *net, char *backup_dir, EpochResults *best_epoch_results)
 {
     char file_path[1024];
     sprintf(file_path, "%s/training_summary.json",backup_dir);
@@ -133,17 +178,10 @@ void save_training_summary(network *net, char *backup_dir, float **confusion_mat
     fprintf(fp, "{\n");
     write_summary_hyperparameters(fp, net);
     fprintf(fp, ",\n");
-    write_summary_metrics(fp, confusion_matrix_train, confusion_matrix_valid, classes);
+    write_summary_metrics(fp, best_epoch_results);
     fprintf(fp, "\n}\n");
 
     fclose(fp);
-}
-
-void free_confusion_matrices(int classes, float **confusion_train, float **confusion_valid)
-{
-    for(int j = 0; j < classes; ++j)
-        free(confusion_train[j]), free(confusion_valid[j]);
-    free(confusion_train), free(confusion_valid);
 }
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
@@ -250,7 +288,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int epoch = (*net->seen)/N, count = 0;
     float epoch_loss = 0.0;
 
-    EpochConfusionMatrices best_confusion_matrices = {NULL, NULL};
+    EpochResults best_epoch_results;
+    initialize_epoch_results(&best_epoch_results, N, N_valid, classes);
 
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches) {
         if(net->random && count++%40 == 0){
@@ -314,9 +353,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             get_predictions(datacfg, cfgfile, buff, "train", y_score_train, y_true_train);
             get_predictions(datacfg, cfgfile, buff, "valid", y_score_valid, y_true_valid);
 
-            int* preds = top_prediction(y_score_train, N, classes);
-            float** cf_mat = confusion_matrix(y_true_train, preds, N, classes);
-
             train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
             valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
 
@@ -330,14 +366,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
                 save_weights(net, buff);
 
                 // Update best confusion matrices
-                if (best_confusion_matrices.training != NULL) {
-                    free_confusion_matrices(classes, confusion_train, confusion_valid);
-                }
-                best_confusion_matrices.training = confusion_train;
-                best_confusion_matrices.validation = confusion_valid;
-
-            } else {
-                free_confusion_matrices(classes, confusion_train, confusion_valid);
+                copy_epoch_results(&best_epoch_results,
+                                   y_true_train,
+                                   y_score_train,
+                                   y_true_valid,
+                                   y_score_valid);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -351,10 +384,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     // Save training summary
     save_training_summary(nets[0],
                           backup_directory,
-                          best_confusion_matrices.training,
-                          best_confusion_matrices.validation,
-                          classes);
+                          &best_epoch_results);
 
+    destroy_epoch_results(&best_epoch_results);
 
     fclose(log_file);
 

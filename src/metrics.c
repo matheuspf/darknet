@@ -81,6 +81,22 @@ void* new_mat (int rows, int cols, size_t size)
     return mat;
 }
 
+/**
+ * @brief Copy the contents of the matrix <dst> into the matrix <src>
+ * @param dst Destination matrix
+ * @param src Source matrix
+ * @param rows Number of rows
+ * @param cols Number of columns
+ * @param size Size of the base element type
+ */
+void copy_mat(void** dst, void** src, int rows, int cols, size_t size)
+{
+    int i;
+
+    for(i = 0; i < rows; ++i)
+        memcpy(dst[i], src[i], cols * size);
+}
+
 
 /** @brief Free the memory of a matrix (pointer to pointers)
  *  @param mat Matrix to be fred (cast to a void pointer to avoid warnings)
