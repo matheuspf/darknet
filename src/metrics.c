@@ -447,7 +447,7 @@ float f1_score (int* y_true, float** y_score, int n, int classes)
 float** precision_recall_curve (int* y_true, float* y_score, int n)
 {
     int i;
-    float true_pos = 0.0, true_neg = 0.0, false_pos = 0.0, false_neg = 0.0;
+    float true_pos = 0.0, false_pos = 0.0, false_neg = 0.0;
 
     float** curve = new_mat(3, n-1, sizeof(float));
 
