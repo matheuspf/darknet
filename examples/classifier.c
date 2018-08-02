@@ -304,11 +304,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
 float** get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true)
 {
-    int i, j, curr, global_idx = 0;
+    int r, c, curr_batch, global_idx = 0;
 
     int net_batch = net->batch;
 
-    data val, buffer;
+    data batch_data, buffer;
 
     load_args args = {0};
     args.w = net->w;
@@ -322,29 +322,29 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     args.type = OLD_CLASSIFICATION_DATA;
 
     pthread_t load_thread = load_data_in_thread(args);
-    for(curr = net_batch; curr < m; curr += net_batch){
+    for(curr_batch = net_batch; curr_batch < m; curr_batch += net_batch){
 
         pthread_join(load_thread, 0);
-        val = buffer;
+        batch_data = buffer;
 
-        if(curr < m){
+        if(curr_batch < m){
 
-            args.paths = paths + curr;
-            if (curr + net_batch > m) args.n = m - curr;
+            args.paths = paths + curr_batch;
+            if (curr_batch + net_batch > m) args.n = m - curr_batch;
             load_thread = load_data_in_thread(args);
         }
 
-        matrix pred = network_predict_data(net, val);
+        matrix predictions = network_predict_data(net, batch_data);
         
-        for(i = 0; i < pred.rows; ++i){
-            for(j = 0; j < pred.cols; ++j){         
-                y_score[global_idx][j] = pred.vals[i][j];                
+        for(r = 0; r < predictions.rows; ++r){
+            for(c = 0; c < predictions.cols; ++c){         
+                y_score[global_idx][c] = predictions.vals[r][c];                
             }
-            y_true[global_idx++] = val.y.vals[0][i];
+            y_true[global_idx++] = batch_data.y.vals[r][0];            
         }
 
-        free_matrix(pred);
-        free_data(val);
+        free_matrix(predictions);
+        free_data(batch_data);
     }
 
     return y_score;
