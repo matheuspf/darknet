@@ -17,9 +17,10 @@ typedef struct
     float** y_score_train;
     int* y_true_valid;
     float** y_score_valid;
-    int N;
+    int N_train;
     int N_valid;
     int classes;
+
 } EpochResults;
 
 typedef struct
@@ -38,6 +39,21 @@ typedef struct
 
 extern const ScoreMetric evaluation_metrics[NUM_METRICS];
 extern const char* evaluation_metric_names[NUM_METRICS];
+
+
+EpochResults* new_epoch_results(int, int, int);
+
+void destroy_epoch_results(EpochResults*);
+
+void copy_epoch_results(EpochResults*, int*, float**, int*, float**);
+
+float *get_regression_values(char**, int);
+
+void write_summary_hyperparameters(FILE*, const network*);
+
+void write_summary_metrics(FILE*, EpochResults*);
+
+void save_training_summary(network*, char*, EpochResults*);
 
 
 void write_net_file (network*, char*);

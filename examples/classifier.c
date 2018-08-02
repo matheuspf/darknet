@@ -5,51 +5,36 @@ const ScoreMetric evaluation_metrics[NUM_METRICS] = { accuracy_score, precision_
 const char* evaluation_metric_names[NUM_METRICS] = { "accuracy", "precision", "recall", "npv", "specificity", "f1" };
 
 
-void initialize_epoch_results(EpochResults* epoch_results,
-                              int N,
-                              int N_valid,
-                              int classes)
+EpochResults* new_epoch_results(int N_train, int N_valid, int classes)
 {
-    epoch_results->y_true_train = malloc(N * sizeof(int));
-    epoch_results->y_score_train = new_mat(N, classes, sizeof(float));
+    EpochResults* epoch_results = malloc(sizeof(EpochResults));
+
+    epoch_results->y_true_train = malloc(N_train * sizeof(int));
+    epoch_results->y_score_train = new_mat(N_train, classes, sizeof(float));
     epoch_results->y_true_valid = malloc(N_valid * sizeof(int));
     epoch_results->y_score_valid = new_mat(N_valid, classes, sizeof(float));
 
-    epoch_results->N = N;
+    epoch_results->N_train = N_train;
     epoch_results->N_valid = N_valid;
     epoch_results->classes = classes;
+
+    return epoch_results;
 }
 
 void destroy_epoch_results(EpochResults* epoch_results)
 {
     free(epoch_results->y_true_train);
-    del_mat(epoch_results->y_score_train, epoch_results->N);
+    del_mat(epoch_results->y_score_train, epoch_results->N_train);
     free(epoch_results->y_true_valid);
     del_mat(epoch_results->y_score_valid, epoch_results->N_valid);
 }
 
-void copy_epoch_results(EpochResults *dst,
-                        int* y_true_train,
-                        float** y_score_train,
-                        int* y_true_valid,
-                        float** y_score_valid)
+void copy_epoch_results(EpochResults *dst, int* y_true_train, float** y_score_train, int* y_true_valid, float** y_score_valid)
 {
-    memcpy(dst->y_true_train, y_true_train, dst->N * sizeof(int));
-    copy_mat((void**)dst->y_score_train, (void**)y_score_train, dst->N, dst->classes, sizeof(float));
+    memcpy(dst->y_true_train, y_true_train, dst->N_train * sizeof(int));
+    copy_mat((void**)dst->y_score_train, (void**)y_score_train, dst->N_train, dst->classes, sizeof(float));
     memcpy(dst->y_true_valid, y_true_valid, dst->N_valid * sizeof(int));
     copy_mat((void**)dst->y_score_valid, (void**)y_score_valid, dst->N_valid, dst->classes, sizeof(float));
-}
-
-float *get_regression_values(char **labels, int n)
-{
-    float *v = calloc(n, sizeof(float));
-    int i;
-    for(i = 0; i < n; ++i){
-        char *p = strchr(labels[i], ' ');
-        *p = 0;
-        v[i] = atof(p+1);
-    }
-    return v;
 }
 
 void write_summary_hyperparameters(FILE *fp, const network *net)
@@ -139,7 +124,7 @@ void write_summary_metrics(FILE *fp, EpochResults *best_epoch_results)
                 evaluation_metric_names[i],
                 evaluation_metrics[i](best_epoch_results->y_true_train,
                                       best_epoch_results->y_score_train,
-                                      best_epoch_results->N,
+                                      best_epoch_results->N_train,
                                       best_epoch_results->classes));
 
         if(i < NUM_METRICS - 1) {
@@ -170,10 +155,8 @@ void write_summary_metrics(FILE *fp, EpochResults *best_epoch_results)
     fprintf(fp, "  }");
 }
 
-void save_training_summary(network *net, char *backup_dir, EpochResults *best_epoch_results)
+void save_training_summary(network *net, char *file_path, EpochResults *best_epoch_results)
 {
-    char file_path[1024];
-    sprintf(file_path, "%s/training_summary.json",backup_dir);
     FILE * fp = fopen (file_path, "w+");
 
     fprintf(fp, "{\n");
@@ -229,10 +212,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     sprintf(log_file_path, "%s/%s", backup_directory, params.log_file);
     FILE* log_file = fopen(log_file_path, "w+");
-
-    // print network hiper-parameters
-    sprintf(log_file_path, "%s/%s", backup_directory, params.hyper_param_file);
-    write_net_file(nets[0], log_file_path);
 
     char **labels = get_labels(label_list);
 
@@ -291,8 +270,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int epoch = (*net->seen) / N_train, count = 0;
     float epoch_loss = 0.0;
 
-    EpochResults best_epoch_results;
-    initialize_epoch_results(&best_epoch_results, N, N_valid, classes);
+    EpochResults *best_epoch_results = new_epoch_results(N_train, N_valid, classes);
 
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches)
     {
@@ -373,11 +351,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
                 save_weights(net, buff);
 
                 // Update best confusion matrices
-                copy_epoch_results(&best_epoch_results,
-                                   y_true_train,
-                                   y_score_train,
-                                   y_true_valid,
-                                   y_score_valid);
+                copy_epoch_results(best_epoch_results, y_true_train, y_score_train, y_true_valid, y_score_valid);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -388,15 +362,13 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         }
     }
 
-
     pthread_join(load_thread, 0);
 
     // Save training summary
-    save_training_summary(nets[0],
-                          backup_directory,
-                          &best_epoch_results);
+    sprintf(log_file_path, "%s/%s", backup_directory, params.hyper_param_file);
+    save_training_summary(net, log_file_path, best_epoch_results);
 
-    destroy_epoch_results(&best_epoch_results);
+    destroy_epoch_results(best_epoch_results);
 
     fclose(log_file);
 
@@ -501,7 +473,20 @@ void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, 
 
 
 
-//========================================================================================================================
+//===========================================================================================================================
+
+
+float *get_regression_values(char **labels, int n)
+{
+    float *v = calloc(n, sizeof(float));
+    int i;
+    for(i = 0; i < n; ++i){
+        char *p = strchr(labels[i], ' ');
+        *p = 0;
+        v[i] = atof(p+1);
+    }
+    return v;
+}
 
 
 
