@@ -321,7 +321,7 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     }
     int shuffled_indices[max];
     for(int i=0; i<max; i++){
-      shuffled_indices[max] = i;
+      shuffled_indices[i] = i;
     }
     // Shuffle only if not using every sample
     if(max != m)
