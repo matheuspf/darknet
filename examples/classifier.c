@@ -363,9 +363,6 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
 
     set_batch_network(net, net_batch);
 
-    free_network(net);
-    free(paths);
-
     return y_score;
 }
 
