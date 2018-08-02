@@ -327,7 +327,7 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     if(max != m)
     {
       // Knuth shuffle
-      for(int i=max-1; i--; i>0){
+      for(int i=(max-1); i--; i>0){
         int random = rand() % i;
         int temp = shuffled_indices[random];
         shuffled_indices[random] = shuffled_indices[i];
@@ -335,7 +335,7 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
       }
     }
 
-    for(i = 0; i < m; ++i)
+    for(i = 0; i < max; ++i)
     {
         int class = -1;
         char *path = paths[shuffled_indices[i]];
