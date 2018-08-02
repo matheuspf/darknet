@@ -53,7 +53,7 @@ void write_summary_hyperparameters(FILE*, const network*);
 
 void write_summary_metrics(FILE*, EpochResults*);
 
-void save_training_summary(network*, char*, EpochResults*);
+void save_training_summary(network*, FILE*, EpochResults*);
 
 
 void write_net_file (network*, char*);
@@ -62,4 +62,4 @@ void train_classifier_valid(char*, char*, char*, int*, int, int, SSM_Params);
 
 float** get_predictions (network*, char**, char**, int, int, float**, int*);
 
-void output_training_log (FILE*, int, float, int*, float**, int, int*, float**, int, int, size_t);
+void output_training_log (FILE*, int, float, double, const EpochResults, size_t);
