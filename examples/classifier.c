@@ -411,15 +411,15 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     if(max > m) {
       max = m;
     }
-    int shuffled_indices[max];
-    for(int i=0; i<max; i++){
+    int shuffled_indices[m];
+    for(int i=0; i<m; i++){
       shuffled_indices[i] = i;
     }
     // Shuffle only if not using every sample
     if(max != m)
     {
       // Knuth shuffle
-      for(int i=(max-1); i>0; i--){
+      for(int i=(m-1); i>0; i--){
         int random = rand() % i;
         if(i!= random)
         {
@@ -440,7 +440,7 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
             break;
         }
 
-        image im = load_image_color(paths[i], 0, 0);
+        image im = load_image_color(path, 0, 0);
         image crop = center_crop_image(im, net->w, net->h);
 
         float *pred = network_predict(net, crop.data);
