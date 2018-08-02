@@ -185,16 +185,16 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     args.d = &buffer;
     load_thread = load_data(args);
 
-    int total_max_epochs = params.max_epochs / params.eval_epochs;
-    total_max_epochs = total_max_epochs > 1 ? total_max_epochs : 1;
+    int max_eval_epochs = params.max_epochs / params.eval_epochs;
+    max_eval_epochs = max_eval_epochs > 1 ? max_eval_epochs : 1;
 
     float** y_score_train = new_mat(N, classes, sizeof(float));
     float** y_score_valid = new_mat(N_valid, classes, sizeof(float));
     int* y_true_train = malloc(N * sizeof(int));
     int* y_true_valid = malloc(N_valid * sizeof(int));
 
-    float *train_accs = malloc(total_max_epochs * sizeof(float));
-    float *valid_accs = malloc(total_max_epochs * sizeof(float));
+    float *train_accs = malloc(max_eval_epochs * sizeof(float));
+    float *valid_accs = malloc(max_eval_epochs * sizeof(float));
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0;
     int epoch = (*net->seen)/N, count = 0;
@@ -259,7 +259,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             save_weights(net, buff);
             update_epoch = 0;
 
-            int cur_epoch = epoch / params.eval_epochs;
+            int cur_epoch = (epoch / params.eval_epochs) - 1;
             get_predictions(datacfg, cfgfile, buff, "train", y_score_train, y_true_train);
             get_predictions(datacfg, cfgfile, buff, "valid", y_score_valid, y_true_valid);
 
@@ -287,25 +287,23 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         }
     }
 
-    // char buff[1024];
-    // sprintf(buff, "%s/%s.weights", backup_directory, base);
-    // save_weights(net, buff);
-    // pthread_join(load_thread, 0);
+
+    pthread_join(load_thread, 0);
 
     fclose(log_file);
 
-    //free_network(net);
+    free_network(net);
 
-    // if(labels) free_ptrs((void**)labels, classes);
-    // free_ptrs((void**)paths, plist->size);
-    // free_list(plist);
+    if(labels) free_ptrs((void**)labels, classes);
+    free_ptrs((void**)paths, plist->size);
+    free_list(plist);
 
-    // del_mat(y_score_train, N), del_mat(y_score_valid, N_valid);
-    // free(y_true_train), free(y_true_valid);
+    del_mat(y_score_train, N), del_mat(y_score_valid, N_valid);
+    free(y_true_train), free(y_true_valid);
 
-    //free(valid_accs);
-    //free(train_accs);
-    //free(base);
+    free(valid_accs);
+    free(train_accs);
+    free(base);
 }
 
 
