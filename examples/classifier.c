@@ -304,7 +304,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
 float** get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true)
 {
-    int i, j, curr, global_idx;
+    int i, j, curr, global_idx = 0;
 
     int net_batch = net->batch;
 
@@ -316,12 +316,10 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     args.paths = paths;
     args.classes = classes;
     args.n = net->batch;
-    args.m = m;
+    args.m = 0;
     args.labels = labels;
     args.d = &buffer;
-    args.type = CLASSIFICATION_DATA;
-
-    printf("starting to load [%d] images \n",m);
+    args.type = OLD_CLASSIFICATION_DATA;
 
     pthread_t load_thread = load_data_in_thread(args);
     for(curr = net_batch; curr < m; curr += net_batch){
@@ -329,28 +327,24 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
         pthread_join(load_thread, 0);
         val = buffer;
 
-        printf("taking a look at [%d] batch\n", curr);
         if(curr < m){
+
             args.paths = paths + curr;
-            if (curr + net->batch > m) args.n = m - curr;
+            if (curr + net_batch > m) args.n = m - curr;
             load_thread = load_data_in_thread(args);
         }
 
-        printf("starting prediction...\n");
-        printf("rows: %d cols: %d\n",val.X.rows, val.X.cols);
-
         matrix pred = network_predict_data(net, val);
-
-        printf("done with prediction.. \n");
-
+        
         for(i = 0; i < pred.rows; ++i){
-            for(j = 0; j < pred.cols; ++j){                        
-                y_score[global_idx][j] = pred.vals[i][j];
-                printf("predicted class: [%f]\n", y_score[global_idx][j]);
+            for(j = 0; j < pred.cols; ++j){         
+                y_score[global_idx][j] = pred.vals[i][j];                
             }
             y_true[global_idx++] = val.y.vals[0][i];
-            printf("expected class: [%d]\n", y_true[--global_idx]);
         }
+
+        free_matrix(pred);
+        free_data(val);
     }
 
     return y_score;
