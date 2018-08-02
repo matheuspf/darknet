@@ -1,110 +1,183 @@
 #include "classifier.h"
 
 const ScoreMetric evaluation_metrics[NUM_METRICS] = { accuracy_score, precision_score, recall_score, npv_score, specificity_score, f1_score };
+
 const char* evaluation_metric_names[NUM_METRICS] = { "accuracy", "precision", "recall", "npv", "specificity", "f1" };
 
 
-
-float *get_regression_values(char **labels, int n)
+EpochResults* new_epoch_results(int N_train, int N_valid, int classes)
 {
-    float *v = calloc(n, sizeof(float));
-    int i;
-    for(i = 0; i < n; ++i){
-        char *p = strchr(labels[i], ' ');
-        *p = 0;
-        v[i] = atof(p+1);
+    EpochResults* epoch_results = malloc(sizeof(EpochResults));
+
+    epoch_results->y_true_train = malloc(N_train * sizeof(int));
+    epoch_results->y_score_train = new_mat(N_train, classes, sizeof(float));
+    epoch_results->y_true_valid = malloc(N_valid * sizeof(int));
+    epoch_results->y_score_valid = new_mat(N_valid, classes, sizeof(float));
+
+    epoch_results->N_train = N_train;
+    epoch_results->N_valid = N_valid;
+    epoch_results->classes = classes;
+
+    return epoch_results;
+}
+
+void destroy_epoch_results(EpochResults* epoch_results)
+{
+    free(epoch_results->y_true_train);
+    del_mat(epoch_results->y_score_train, epoch_results->N_train);
+    free(epoch_results->y_true_valid);
+    del_mat(epoch_results->y_score_valid, epoch_results->N_valid);
+}
+
+void copy_epoch_results(EpochResults *dst, int* y_true_train, float** y_score_train, int* y_true_valid, float** y_score_valid)
+{
+    memcpy(dst->y_true_train, y_true_train, dst->N_train * sizeof(int));
+    copy_mat((void**)dst->y_score_train, (void**)y_score_train, dst->N_train, dst->classes, sizeof(float));
+    memcpy(dst->y_true_valid, y_true_valid, dst->N_valid * sizeof(int));
+    copy_mat((void**)dst->y_score_valid, (void**)y_score_valid, dst->N_valid, dst->classes, sizeof(float));
+}
+
+void write_summary_hyperparameters(FILE *fp, const network *net)
+{
+    fprintf(fp, "  \"parameters\":\n");
+    fprintf(fp, "  {\n\n");
+
+    fprintf(fp, "    \"width\": %d,\n",net->w);
+    fprintf(fp, "    \"height\": %d,\n",net->h);
+    fprintf(fp, "    \"channels\": %d,\n",net->c);
+    fprintf(fp, "\n");
+
+    fprintf(fp, "    \"batch\": %d,\n",net->batch);
+    fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
+    fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
+    fprintf(fp, "\n");
+
+    fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
+    fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
+    fprintf(fp, "    \"decay\": %f,\n",net->decay);
+    fprintf(fp, "    \"gamma\": %f,\n",net->gamma);
+    fprintf(fp, "    \"power\": %f,\n",net->power);
+    fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
+    fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
+    fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
+    if(net->num_steps > 0)
+    {
+        fprintf(fp, "    \"steps\": [");
+        for (int i=0; i<net->num_steps; i++) {
+            fprintf(fp, "%d",net->steps[i]);
+            if (i<net->num_steps-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "],\n");
     }
-    return v;
+    if(net->num_steps > 0)
+    {
+        fprintf(fp, "    \"scales\": [");
+        for (int i=0; i<net->num_steps; i++) {
+            fprintf(fp, "%f",net->scales[i]);
+            if (i<net->num_steps-1)
+                fprintf(fp, ",");
+        }
+        fprintf(fp, "],\n");
+    }
+    fprintf(fp, "\n");
+
+    fprintf(fp, "    \"adam\": %d,\n",net->adam);
+    fprintf(fp, "    \"B1\": %f,\n",net->B1);
+    fprintf(fp, "    \"B2\": %f,\n",net->B2);
+    fprintf(fp, "    \"eps\": %f,\n",net->eps);
+    fprintf(fp, "\n");
+
+    fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
+    fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
+    fprintf(fp, "    \"max_ratio\": %f,\n",net->max_ratio);
+    fprintf(fp, "    \"min_ratio\": %f,\n",net->min_ratio);
+    fprintf(fp, "    \"center\": %d,\n",net->center);
+    fprintf(fp, "    \"angle\": %f,\n",net->angle);
+    fprintf(fp, "    \"aspect\": %f,\n",net->aspect);
+    fprintf(fp, "    \"exposure\": %f,\n",net->exposure);
+    fprintf(fp, "    \"saturation\": %f,\n",net->saturation);
+    fprintf(fp, "    \"hue\": %f,\n",net->hue);
+    fprintf(fp, "    \"random\": %d\n",net->random);
+
+    fprintf(fp, "  }");
 }
 
-void write_net_file(network *net, char *backup_dir)
+void write_summary_metrics(FILE *fp, EpochResults *best_epoch_results)
 {
+    if (best_epoch_results == NULL ||
+        best_epoch_results->y_score_train == NULL) {
+        fprintf(fp, "  \"evaluation\": {}");
+        return;
+    }
 
-  char file_path[1024];
-  sprintf(file_path, "%s/training_summary.json",backup_dir);
-  FILE * fp = fopen (file_path, "w+");
+    fprintf(fp, "  \"evaluation\":\n");
+    fprintf(fp, "  {\n");
 
-  fprintf(fp, "{\n");
+    // Save training metrics
+    fprintf(fp, "    \"training_set\":\n");
+    fprintf(fp, "    {\n");
 
-  fprintf(fp, "  \"parameters\": \n");
-  fprintf(fp, "  {\n\n");
+    for(int i = 0; i < NUM_METRICS; ++i) {
+        fprintf(fp,
+                "      \"%s\": %f",
+                evaluation_metric_names[i],
+                evaluation_metrics[i](best_epoch_results->y_true_train,
+                                      best_epoch_results->y_score_train,
+                                      best_epoch_results->N_train,
+                                      best_epoch_results->classes));
 
-  fprintf(fp, "    \"width\": %d,\n",net->w);
-  fprintf(fp, "    \"height\": %d,\n",net->h);
-  fprintf(fp, "    \"channels\": %d,\n",net->c);
-  fprintf(fp, "  \n");
+        if(i < NUM_METRICS - 1) {
+            fprintf(fp, ",\n");
+        }
+    }
 
-  fprintf(fp, "    \"batch\": %d,\n",net->batch);
-  fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
-  fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
-  fprintf(fp, "  \n");
+    // Save evaluation metrics
+    fprintf(fp, "\n");
+    fprintf(fp, "    },\n");
+    fprintf(fp, "    \"validation_set\":\n");
+    fprintf(fp, "    {\n");
+    for(int i = 0; i < NUM_METRICS; ++i) {
+        fprintf(fp,
+                "      \"%s\": %f",
+                evaluation_metric_names[i],
+                evaluation_metrics[i](best_epoch_results->y_true_valid,
+                                      best_epoch_results->y_score_valid,
+                                      best_epoch_results->N_valid,
+                                      best_epoch_results->classes));
 
-  fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
-  fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
-  fprintf(fp, "    \"decay\": %f,\n",net->decay);
-  fprintf(fp, "    \"gamma\": %f,\n",net->gamma);
-  fprintf(fp, "    \"power\": %f,\n",net->power);
-  fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
-  fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
-  fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
-  if(net->num_steps > 0)
-  {
-    fprintf(fp, "    \"steps\": [");
-      for (int i=0; i<net->num_steps; i++) {
-        fprintf(fp, "%d",net->steps[i]);
-        if (i<net->num_steps-1)
-          fprintf(fp, ",");
-      }
-    fprintf(fp, "],\n");
-  }
-  if(net->num_steps > 0)
-  {
-    fprintf(fp, "    \"scales\": [");
-      for (int i=0; i<net->num_steps; i++) {
-        fprintf(fp, "%f",net->scales[i]);
-        if (i<net->num_steps-1)
-          fprintf(fp, ",");
-      }
-    fprintf(fp, "],\n");
-  }
-  fprintf(fp, "  \n");
-
-  fprintf(fp, "    \"adam\": %d,\n",net->adam);
-  fprintf(fp, "    \"B1\": %f,\n",net->B1);
-  fprintf(fp, "    \"B2\": %f,\n",net->B2);
-  fprintf(fp, "    \"eps\": %f,\n",net->eps);
-  fprintf(fp, "  \n");
-
-  fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
-  fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
-  fprintf(fp, "    \"max_ratio\": %f,\n",net->max_ratio);
-  fprintf(fp, "    \"min_ratio\": %f,\n",net->min_ratio);
-  fprintf(fp, "    \"center\": %d,\n",net->center);
-  fprintf(fp, "    \"angle\": %f,\n",net->angle);
-  fprintf(fp, "    \"aspect\": %f,\n",net->aspect);
-  fprintf(fp, "    \"exposure\": %f,\n",net->exposure);
-  fprintf(fp, "    \"saturation\": %f,\n",net->saturation);
-  fprintf(fp, "    \"hue\": %f,\n",net->hue);
-  fprintf(fp, "    \"random\": %d\n",net->random);
-
-  fprintf(fp, "  }\n");
-  fprintf(fp, "}\n");
-
-  fclose(fp);
+        if(i < NUM_METRICS - 1) {
+            fprintf(fp, ",\n");
+        }
+    }
+    fprintf(fp, "\n");
+    fprintf(fp, "    }\n");
+    fprintf(fp, "  }");
 }
+
+void save_training_summary(network *net, char *file_path, EpochResults *best_epoch_results)
+{
+    FILE * fp = fopen (file_path, "w+");
+
+    fprintf(fp, "{\n");
+    write_summary_hyperparameters(fp, net);
+    fprintf(fp, ",\n");
+    write_summary_metrics(fp, best_epoch_results);
+    fprintf(fp, "\n}\n");
+
+    fclose(fp);
+}
+
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
 {
-    int i, j;
+    int i;
 
-    char* base = basecfg(cfgfile);
-
-    FILE* log_file = fopen(params.log_file, "w");
+    char* base_net_name = basecfg(cfgfile);
 
     network **nets = calloc(ngpus, sizeof(network*));
 
     ScoreMetric metric = evaluation_metrics[params.metric];
-
 
     srand(time(0));
     int seed = rand();
@@ -122,12 +195,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     network *net = nets[0];
 
-    int imgs = net->batch * net->subdivisions * ngpus;
+    int num_imgs = net->batch * net->subdivisions * ngpus;
 
     list *options = read_data_cfg(datacfg);
 
     char *backup_directory = option_find_str(options, "backup", "/backup/");
-    int tag = option_find_int_quiet(options, "tag", 0);
     char *label_list = option_find_str(options, "labels", "data/labels.list");
     char *train_list = option_find_str(options, "train", "data/train.list");
     char *valid_list = option_find_str(options, "valid", "data/valid.list");
@@ -135,14 +207,17 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     if (tree) net->hierarchy = read_tree(tree);
     int classes = option_find_int(options, "classes", 2);
 
-    // print network hiper-parameters
-    write_net_file(nets[0], backup_directory);
+
+    char log_file_path[1024];
+
+    sprintf(log_file_path, "%s/%s", backup_directory, params.log_file);
+    FILE* log_file = fopen(log_file_path, "w+");
 
     char **labels = get_labels(label_list);
 
-    list *plist = get_paths(train_list);
-    char **paths = (char **)list_to_array(plist);
-    int N = plist->size;
+    list *plist_train = get_paths(train_list);
+    char **paths_train = (char **)list_to_array(plist_train);
+    int N_train = plist_train->size;
 
     list *plist_valid = get_paths(valid_list);
     char **paths_valid = (char **)list_to_array(plist_valid);
@@ -166,16 +241,12 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     args.hue = net->hue;
     args.size = net->w;
 
-    args.paths = paths;
+    args.paths = paths_train;
     args.classes = classes;
-    args.n = imgs;
-    args.m = N;
+    args.n = num_imgs;
+    args.m = N_train;
     args.labels = labels;
-    if (tag)
-        args.type = TAG_DATA;
-
-    else
-        args.type = CLASSIFICATION_DATA;
+    args.type = CLASSIFICATION_DATA;
 
     data train;
     data buffer;
@@ -186,41 +257,43 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int max_eval_epochs = params.max_epochs / params.eval_epochs;
     max_eval_epochs = max_eval_epochs > 1 ? max_eval_epochs : 1;
 
-    float** y_score_train = new_mat(N, classes, sizeof(float));
+    float** y_score_train = new_mat(N_train, classes, sizeof(float));
     float** y_score_valid = new_mat(N_valid, classes, sizeof(float));
-    int* y_true_train = malloc(N * sizeof(int));
+
+    int* y_true_train = malloc(N_train * sizeof(int));
     int* y_true_valid = malloc(N_valid * sizeof(int));
 
     float *train_accs = malloc(max_eval_epochs * sizeof(float));
     float *valid_accs = malloc(max_eval_epochs * sizeof(float));
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0;
-    int epoch = (*net->seen)/N, count = 0;
+    int epoch = (*net->seen) / N_train, count = 0;
     float epoch_loss = 0.0;
 
+    EpochResults *best_epoch_results = new_epoch_results(N_train, N_valid, classes);
 
-    while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches){
-        if(net->random && count++%40 == 0){
-            printf("Resizing\n");
+    while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches)
+    {
+        if(net->random && count++%40 == 0)
+        {
             int dim = (rand() % 11 + 4) * 32;
-            printf("%d\n", dim);
             args.w = dim;
             args.h = dim;
             args.size = dim;
             args.min = net->min_ratio*dim;
             args.max = net->max_ratio*dim;
-            printf("%d %d\n", args.min, args.max);
 
             pthread_join(load_thread, 0);
             train = buffer;
             free_data(train);
             load_thread = load_data(args);
 
-            for(i = 0; i < ngpus; ++i){
+            for(i = 0; i < ngpus; ++i)
                 resize_network(nets[i], dim, dim);
-            }
+
             net = nets[0];
         }
+
         time = what_time_is_it_now();
 
         pthread_join(load_thread, 0);
@@ -245,33 +318,39 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss, get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
         free_data(train);
 
-        if(*net->seen/N > epoch) {
-            epoch = *net->seen/N;
+        if(*net->seen / N_train > epoch)
+        {
+            epoch = *net->seen / N_train;
             update_epoch = 1;
         }
 
-        if(update_epoch && (epoch % params.eval_epochs) == 0){
+        if(update_epoch && (epoch % params.eval_epochs) == 0)
+        {
             char buff[1024];
-            sprintf(buff, "%s/%s.weights",backup_directory, base);
+            sprintf(buff, "%s/%s.weights",backup_directory, base_net_name);
             save_weights(net, buff);
             update_epoch = 0;
 
             int cur_epoch = (epoch / params.eval_epochs) - 1;
 
-            get_predictions(net, paths, labels, N, classes, y_score_train, y_true_train);
+            get_predictions(net, paths_train, labels, N_train, classes, y_score_train, y_true_train);
             get_predictions(net, paths_valid, labels, N_valid, classes, y_score_valid, y_true_valid);
 
-            train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
+            train_accs[cur_epoch] = metric(y_true_train, y_score_train, N_train, classes);
             valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
 
-            output_training_log(stdout, epoch, epoch_loss, y_true_train, y_score_train, N, y_true_valid, y_score_valid, N_valid, classes, params.log_output);
+            output_training_log(stdout, epoch, epoch_loss, y_true_train, y_score_train, N_train, y_true_valid, y_score_valid, N_valid, classes, params.log_output);
 
             epoch_loss = 0.0;
 
-            if(valid_accs[cur_epoch] > best_acc){
+            if(valid_accs[cur_epoch] > best_acc)
+            {
                 best_acc = valid_accs[cur_epoch];
-                sprintf(buff, "%s/%s-best.weights",backup_directory,base);
+                sprintf(buff, "%s/%s-best.weights",backup_directory, base_net_name);
                 save_weights(net, buff);
+
+                // Update best confusion matrices
+                copy_epoch_results(best_epoch_results, y_true_train, y_score_train, y_true_valid, y_score_valid);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -282,29 +361,41 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         }
     }
 
-
     pthread_join(load_thread, 0);
+
+    // Save training summary
+    sprintf(log_file_path, "%s/%s", backup_directory, params.hyper_param_file);
+    save_training_summary(net, log_file_path, best_epoch_results);
+
+    destroy_epoch_results(best_epoch_results);
 
     fclose(log_file);
 
     free_network(net);
 
     if(labels) free_ptrs((void**)labels, classes);
-    free_ptrs((void**)paths, plist->size);
-    free_list(plist);
 
-    del_mat(y_score_train, N), del_mat(y_score_valid, N_valid);
-    free(y_true_train), free(y_true_valid);
+    free_ptrs((void**)paths_train, plist_train->size);
+    free_list(plist_train);
+
+    free_ptrs((void**)paths_valid, plist_valid->size);
+    free_list(plist_valid);
+
+    del_mat(y_score_train, N_train);
+    del_mat(y_score_valid, N_valid);
+
+    free(y_true_train);
+    free(y_true_valid);
 
     free(valid_accs);
     free(train_accs);
-    free(base);
+    free(base_net_name);
 }
 
 
 float** get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true)
 {
-    int r, c, curr_batch, global_idx = 0;
+    int r, c, curr_batch, global_idx = 0, l;
 
     int net_batch = net->batch;
 
@@ -352,69 +443,6 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
 
 
 
-
-// float** get_predictions (char *datacfg, char *filename, char *weightfile, char* set_name, float** y_score, int* y_true)
-// {
-//     int i, j;
-//     network *net = load_network(filename, weightfile, 0);
-//     set_batch_network(net, 1);
-//     srand(time(0));
-
-//     list *options = read_data_cfg(datacfg);
-
-    // char *label_list = option_find_str(options, "labels", "data/labels.list");
-    // char *leaf_list = option_find_str(options, "leaves", 0);
-    // if(leaf_list) change_leaves(net->hierarchy, leaf_list);
-    // char *valid_list = option_find_str(options, set_name, "data/test.list");
-    // int classes = option_find_int(options, "classes", 2);
-    // int topk = option_find_int(options, "top", 1);
-
-    // char **labels = get_labels(label_list);
-    // list *plist = get_paths(valid_list);
-
-    // char **paths = (char **)list_to_array(plist);
-    // int m = plist->size;
-    // free_list(plist);
-
-//     float acc = 0;
-
-//     for(i = 0; i < m; ++i){
-//         int class = -1;
-//         char *path = paths[i];
-//         for(j = 0; j < classes; ++j){
-//             if(strstr(path, labels[j])){
-//                 class = j;
-//                 break;
-//             }
-//         }
-//         image im = load_image_color(paths[i], 0, 0);
-//         image crop = center_crop_image(im, net->w, net->h);
-        
-//         float *pred = network_predict(net, crop.data);
-
-//         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
-
-//         free_image(im);
-//         free_image(crop);
-
-//         int l;
-//         for(l = 0; l < classes; ++l)
-//             y_score[i][l] = pred[l];
-
-//         y_true[i] = class;
-//     }
-
-
-//     free_network(net);
-
-//     // if(labels) free_ptrs((void**)labels, classes);
-//     // free_ptrs((void**)paths, plist->size);
-
-//     return y_score;
-// }
-
-
-
 void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, float** y_score_train, int N_train, 
                           int* y_true_valid, float** y_score_valid, int N_valid, int classes, size_t options)
 {
@@ -452,7 +480,20 @@ void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, 
 
 
 
-//========================================================================================================================
+//===========================================================================================================================
+
+
+float *get_regression_values(char **labels, int n)
+{
+    float *v = calloc(n, sizeof(float));
+    int i;
+    for(i = 0; i < n; ++i){
+        char *p = strchr(labels[i], ' ');
+        *p = 0;
+        v[i] = atof(p+1);
+    }
+    return v;
+}
 
 
 
@@ -1521,6 +1562,7 @@ void run_classifier(int argc, char **argv)
     char* metric_name = option_find_str(options, "metric", "accuracy");
     char* log_file = option_find_str(options, "log_file", "training_log.txt");
     int log_output = option_find_int(options, "log_output", (1<<NUM_METRICS)-1);
+    char* hyper_param_file = option_find_str(options, "hyper_param_file", "training_summary.json");
     TRAIN_METRIC metric;
 
     eval_epochs = find_int_arg(argc, argv, "-eval_epochs", eval_epochs);
@@ -1530,6 +1572,7 @@ void run_classifier(int argc, char **argv)
     metric_name = find_char_arg(argc, argv, "-metric", metric_name);
     log_file = find_char_arg(argc, argv, "-log_file", log_file);
     log_output = find_int_arg(argc, argv, "-log_output", log_output);
+    hyper_param_file = find_char_arg(argc, argv, "-hyper_param_file", hyper_param_file);
 
 
     if(strcmp(metric_name, "accuracy") == 0) metric = ACCURACY;
@@ -1561,7 +1604,7 @@ void run_classifier(int argc, char **argv)
     else if(0==strcmp(argv[2], "validcrop")) validate_classifier_crop(data, cfg, weights);
     else if(0==strcmp(argv[2], "validfull")) validate_classifier_full(data, cfg, weights);
     else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear, 
-                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, log_file, log_output});
+                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, log_file, log_output, hyper_param_file});
 }
 
 
