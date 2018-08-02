@@ -130,6 +130,7 @@ matrix load_image_augment_paths(char **paths, int n, int min, int max, int size,
         free_image(im);
         X.vals[i] = crop.data;
         X.cols = crop.h*crop.w*crop.c;
+        printf("loading one by one [%s]\n",paths[i]);
     }
     return X;
 }
@@ -1262,7 +1263,9 @@ data load_data_augment(char **paths, int n, int m, char **labels, int k, tree *h
     d.shallow = 0;
     d.w=size;
     d.h=size;
+    printf("loading imgs. m:[%d] n:[%d]\n", m, n);
     d.X = load_image_augment_paths(paths, n, min, max, size, angle, aspect, hue, saturation, exposure, center);
+    printf("rows: %d\n",d.X.rows);
     d.y = load_labels_paths(paths, n, labels, k, hierarchy);
     if(m) free(paths);
     return d;

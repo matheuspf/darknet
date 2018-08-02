@@ -242,8 +242,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     
         epoch_loss += loss;
 
-        //printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
-        //  get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
+        printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss, get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
         free_data(train);
 
         if(*net->seen/N > epoch) {
@@ -259,8 +258,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
             int cur_epoch = (epoch / params.eval_epochs) - 1;
 
-            get_predictions(net, paths, labels, N, classes, "train", y_score_train, y_true_train);
-            get_predictions(net, paths_valid, labels, N_valid, classes, "valid", y_score_valid, y_true_valid);
+            get_predictions(net, paths, labels, N, classes, y_score_train, y_true_train);
+            get_predictions(net, paths_valid, labels, N_valid, classes, y_score_valid, y_true_valid);
 
             train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
             valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
@@ -303,43 +302,56 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 }
 
 
-float** get_predictions (network* net, char** paths, char** labels, int m, int classes, char* set_name, float** y_score, int* y_true)
+float** get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true)
 {
-    int i, j;
+    int i, j, curr, global_idx;
 
     int net_batch = net->batch;
-    set_batch_network(net, 1);
 
-    srand(time(0));
+    data val, buffer;
 
-    for(i = 0; i < m; ++i){
-        int class = -1;
-        char *path = paths[i];
-        for(j = 0; j < classes; ++j){
-            if(strstr(path, labels[j])){
-                class = j;
-                break;
-            }
+    load_args args = {0};
+    args.w = net->w;
+    args.h = net->h;
+    args.paths = paths;
+    args.classes = classes;
+    args.n = net->batch;
+    args.m = m;
+    args.labels = labels;
+    args.d = &buffer;
+    args.type = CLASSIFICATION_DATA;
+
+    printf("starting to load [%d] images \n",m);
+
+    pthread_t load_thread = load_data_in_thread(args);
+    for(curr = net_batch; curr < m; curr += net_batch){
+
+        pthread_join(load_thread, 0);
+        val = buffer;
+
+        printf("taking a look at [%d] batch\n", curr);
+        if(curr < m){
+            args.paths = paths + curr;
+            if (curr + net->batch > m) args.n = m - curr;
+            load_thread = load_data_in_thread(args);
         }
 
-        image im = load_image_color(paths[i], 0, 0);
-        image crop = center_crop_image(im, net->w, net->h);
-        
-        float *pred = network_predict(net, crop.data);
+        printf("starting prediction...\n");
+        printf("rows: %d cols: %d\n",val.X.rows, val.X.cols);
 
-        if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
+        matrix pred = network_predict_data(net, val);
 
-        free_image(im);
-        free_image(crop);
+        printf("done with prediction.. \n");
 
-        int l;
-        for(l = 0; l < classes; ++l)
-            y_score[i][l] = pred[l];
-
-        y_true[i] = class;
+        for(i = 0; i < pred.rows; ++i){
+            for(j = 0; j < pred.cols; ++j){                        
+                y_score[global_idx][j] = pred.vals[i][j];
+                printf("predicted class: [%f]\n", y_score[global_idx][j]);
+            }
+            y_true[global_idx++] = val.y.vals[0][i];
+            printf("expected class: [%d]\n", y_true[--global_idx]);
+        }
     }
-
-    set_batch_network(net, net_batch);
 
     return y_score;
 }
