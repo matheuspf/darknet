@@ -26,10 +26,6 @@ typedef struct
 typedef struct
 {
     TRAIN_METRIC metric;
-    // The maximum number of predictions that will be made to calculate
-    // metrics after the end of each epoch.
-    // Predictions are counted separately for training and validation datasets.
-    int max_predictions;
     int eval_epochs;
     int max_epochs;
     int patience;
@@ -37,6 +33,10 @@ typedef struct
     char* log_file;
     size_t log_output;
     char* hyper_param_file;
+    // The maximum number of predictions that will be made to calculate
+    // metrics after the end of each epoch.
+    // Predictions are counted separately for training and validation datasets.
+    int max_predictions;
 
 } SSM_Params;
 
