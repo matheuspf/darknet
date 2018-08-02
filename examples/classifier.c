@@ -241,11 +241,13 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 #else
         loss = train_network(net, train);
 #endif
-    
+
         epoch_loss += loss;
 
-        //printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
-        //  get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
+        // Print some info about the batch
+        printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
+          get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
+
         free_data(train);
 
         if(*net->seen/N > epoch) {
@@ -345,7 +347,7 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
         }
         image im = load_image_color(paths[i], 0, 0);
         image crop = center_crop_image(im, net->w, net->h);
-        
+
         float *pred = network_predict(net, crop.data);
 
         if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
@@ -363,13 +365,13 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
 
     free_network(net);
     free(paths);
-    
+
     return y_score;
 }
 
 
 
-void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, float** y_score_train, int N_train, 
+void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, float** y_score_train, int N_train,
                           int* y_true_valid, float** y_score_valid, int N_valid, int classes, size_t options)
 {
     int i, j, k;
@@ -1177,7 +1179,7 @@ void threat_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_i
     int *indexes = calloc(top, sizeof(int));
 
     if(!cap) error("Couldn't connect to webcam.\n");
-    //cvNamedWindow("Threat", CV_WINDOW_NORMAL); 
+    //cvNamedWindow("Threat", CV_WINDOW_NORMAL);
     //cvResizeWindow("Threat", 512, 512);
     float fps = 0;
     int i;
@@ -1468,6 +1470,8 @@ void run_classifier(int argc, char **argv)
     section *s = (section *)n->val;
     list *options = s->options;
 
+    int max_predictions = option_find_int(options, "max_predictions", 100);
+
     int eval_epochs = option_find_int(options, "eval_epochs", 1);
     int max_epochs = option_find_int(options, "max_epochs", 100);
     int patience = option_find_int(options, "patience", 10);
@@ -1490,8 +1494,8 @@ void run_classifier(int argc, char **argv)
     else if(strcmp(metric_name, "precision") == 0) metric = PRECISION;
     else if(strcmp(metric_name, "recall") == 0) metric = RECALL;
     else if(strcmp(metric_name, "npv") == 0) metric = NPV;
-    else if(strcmp(metric_name, "specificity") == 0) metric = SPECIFICITY;    
-    else if(strcmp(metric_name, "f1") == 0) metric = F1_SCORE;    
+    else if(strcmp(metric_name, "specificity") == 0) metric = SPECIFICITY;
+    else if(strcmp(metric_name, "f1") == 0) metric = F1_SCORE;
     else metric = ACCURACY;
 
     char *weights = (argc > 5) ? argv[5] : 0;
@@ -1514,8 +1518,6 @@ void run_classifier(int argc, char **argv)
     else if(0==strcmp(argv[2], "valid10")) validate_classifier_10(data, cfg, weights);
     else if(0==strcmp(argv[2], "validcrop")) validate_classifier_crop(data, cfg, weights);
     else if(0==strcmp(argv[2], "validfull")) validate_classifier_full(data, cfg, weights);
-    else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear, 
-                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, log_file, log_output});
+    else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear,
+                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, log_file, log_output, max_predictions});
 }
-
-

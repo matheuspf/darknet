@@ -14,6 +14,10 @@ typedef enum { ACCURACY, PRECISION, RECALL, NPV, SPECIFICITY, F1_SCORE, NUM_METR
 typedef struct
 {
     TRAIN_METRIC metric;
+    // The maximum number of predictions that will be made to calculate
+    // metrics after the end of each epoch.
+    // Predictions are counted separately for training and validation datasets.
+    int max_predictions max_predictions;
     int eval_epochs;
     int max_epochs;
     int patience;
