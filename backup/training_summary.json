@@ -1,0 +1,39 @@
+{
+  "parameters": 
+  {
+
+    "width": 128,
+    "height": 128,
+    "channels": 3,
+  
+    "batch": 256,
+    "subdivisions": 1,
+    "max_batches": 1600000,
+  
+    "learning_rate": 0.100000,
+    "momentum": 0.900000,
+    "decay": 0.000500,
+    "gamma": 0.000000,
+    "power": 4.000000,
+    "burn_in": 0,
+    "policy": 3,
+    "num_steps": 0,
+  
+    "adam": 0,
+    "B1": 0.000000,
+    "B2": 0.000000,
+    "eps": 0.000000,
+  
+    "max_crop": 128,
+    "min_crop": 128,
+    "max_ratio": 1.000000,
+    "min_ratio": 1.000000,
+    "center": 0,
+    "angle": 0.000000,
+    "aspect": 1.000000,
+    "exposure": 1.000000,
+    "saturation": 1.000000,
+    "hue": 0.000000,
+    "random": 0
+  }
+}

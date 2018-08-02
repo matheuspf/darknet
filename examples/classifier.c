@@ -234,9 +234,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
         epoch_loss += loss;
 
-        // Print some info about the batch
-        printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
-          get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
+        //printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), (float)(*net->seen)/N, loss,
+        //  get_current_rate(net), what_time_is_it_now()-time, *net->seen, bad_epochs);
 
         free_data(train);
 
