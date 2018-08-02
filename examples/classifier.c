@@ -261,8 +261,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
             int cur_epoch = (epoch / params.eval_epochs) - 1;
 
-            get_predictions(net, paths, labels, N, classes, "train", y_score_train, y_true_train);
-            get_predictions(net, paths_valid, labels, N_valid, classes, "valid", y_score_valid, y_true_valid);
+            get_predictions(net, paths, labels, N, classes, "train", y_score_train, y_true_train, params.max_predictions);
+            get_predictions(net, paths_valid, labels, N_valid, classes, "valid", y_score_valid, y_true_valid, params.max_predictions);
 
             train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
             valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
@@ -305,7 +305,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 }
 
 
-float** get_predictions (network* net, char** paths, char** labels, int m, int classes, char* set_name, float** y_score, int* y_true)
+float** get_predictions (network* net, char** paths, char** labels, int m, int classes, char* set_name, float** y_score, int* y_true, int max)
 {
     int i, j;
 
@@ -314,9 +314,29 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
 
     srand(time(0));
 
-    for(i = 0; i < m; ++i){
+    // Make array of indices
+    if(max > m) {
+      max = m;
+    }
+    int shuffled_indices[max];
+    for(int i=0; i<max; i++){
+      shuffled_indices[max] = i;
+    }
+    // Shuffle only if not using every sample
+    if(max != m)
+    {
+      // Knuth shuffle
+      for(int i=max-1; i--; i>0){
+        int random = rand() % i;
+        int temp = shuffled_indices[random];
+        shuffled_indices[random] = shuffled_indices[i];
+        shuffled_indices[i] = temp;
+      }
+    }
+
+    for(i = 0; i < max; ++i){
         int class = -1;
-        char *path = paths[i];
+        char *path = paths[shuffled_indices[i]];
         for(j = 0; j < classes; ++j){
             if(strstr(path, labels[j])){
                 class = j;
@@ -1450,7 +1470,7 @@ void run_classifier(int argc, char **argv)
     section *s = (section *)n->val;
     list *options = s->options;
 
-    int max_predictions = option_find_int(options, "max_predictions", 100);
+    int max_predictions = option_find_int(options, "max_predictions", 10);
 
     int eval_epochs = option_find_int(options, "eval_epochs", 1);
     int max_epochs = option_find_int(options, "max_epochs", 100);

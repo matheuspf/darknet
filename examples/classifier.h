@@ -17,7 +17,7 @@ typedef struct
     // The maximum number of predictions that will be made to calculate
     // metrics after the end of each epoch.
     // Predictions are counted separately for training and validation datasets.
-    int max_predictions max_predictions;
+    int max_predictions;
     int eval_epochs;
     int max_epochs;
     int patience;
@@ -34,6 +34,6 @@ extern const char* evaluation_metric_names[NUM_METRICS];
 
 void train_classifier_valid(char*, char*, char*, int*, int, int, SSM_Params);
 
-float** get_predictions (network*, char**, char**, int, int, char*, float**, int*);
+float** get_predictions (network*, char**, char**, int, int, char*, float**, int*, int);
 
 void output_training_log (FILE*, int, float, int*, float**, int, int*, float**, int, int, size_t);
