@@ -5,24 +5,52 @@ const ScoreMetric evaluation_metrics[NUM_METRICS] = { accuracy_score, precision_
 const char* evaluation_metric_names[NUM_METRICS] = { "accuracy", "precision", "recall", "npv", "specificity", "f1" };
 
 
-void write_net_file(network *net, char *file_path)
+EpochResults* new_epoch_results(int N_train, int N_valid, int classes)
 {
-    FILE * fp = fopen (file_path, "w+");
+    EpochResults* epoch_results = malloc(sizeof(EpochResults));
 
-    fprintf(fp, "{\n");
+    epoch_results->y_true_train = malloc(N_train * sizeof(int));
+    epoch_results->y_score_train = new_mat(N_train, classes, sizeof(float));
+    epoch_results->y_true_valid = malloc(N_valid * sizeof(int));
+    epoch_results->y_score_valid = new_mat(N_valid, classes, sizeof(float));
 
-    fprintf(fp, "  \"parameters\": \n");
+    epoch_results->N_train = N_train;
+    epoch_results->N_valid = N_valid;
+    epoch_results->classes = classes;
+
+    return epoch_results;
+}
+
+void destroy_epoch_results(EpochResults* epoch_results)
+{
+    free(epoch_results->y_true_train);
+    del_mat(epoch_results->y_score_train, epoch_results->N_train);
+    free(epoch_results->y_true_valid);
+    del_mat(epoch_results->y_score_valid, epoch_results->N_valid);
+}
+
+void copy_epoch_results(EpochResults *dst, int* y_true_train, float** y_score_train, int* y_true_valid, float** y_score_valid)
+{
+    memcpy(dst->y_true_train, y_true_train, dst->N_train * sizeof(int));
+    copy_mat((void**)dst->y_score_train, (void**)y_score_train, dst->N_train, dst->classes, sizeof(float));
+    memcpy(dst->y_true_valid, y_true_valid, dst->N_valid * sizeof(int));
+    copy_mat((void**)dst->y_score_valid, (void**)y_score_valid, dst->N_valid, dst->classes, sizeof(float));
+}
+
+void write_summary_hyperparameters(FILE *fp, const network *net)
+{
+    fprintf(fp, "  \"parameters\":\n");
     fprintf(fp, "  {\n\n");
 
     fprintf(fp, "    \"width\": %d,\n",net->w);
     fprintf(fp, "    \"height\": %d,\n",net->h);
     fprintf(fp, "    \"channels\": %d,\n",net->c);
-    fprintf(fp, "  \n");
+    fprintf(fp, "\n");
 
     fprintf(fp, "    \"batch\": %d,\n",net->batch);
     fprintf(fp, "    \"subdivisions\": %d,\n",net->subdivisions);
     fprintf(fp, "    \"max_batches\": %d,\n",net->max_batches);
-    fprintf(fp, "  \n");
+    fprintf(fp, "\n");
 
     fprintf(fp, "    \"learning_rate\": %f,\n",net->learning_rate);
     fprintf(fp, "    \"momentum\": %f,\n",net->momentum);
@@ -32,40 +60,33 @@ void write_net_file(network *net, char *file_path)
     fprintf(fp, "    \"burn_in\": %d,\n",net->burn_in);
     fprintf(fp, "    \"policy\": %d,\n",(int)net->policy);
     fprintf(fp, "    \"num_steps\": %d,\n",net->num_steps);
-
     if(net->num_steps > 0)
     {
         fprintf(fp, "    \"steps\": [");
-        for (int i=0; i<net->num_steps; i++)
-        {
+        for (int i=0; i<net->num_steps; i++) {
             fprintf(fp, "%d",net->steps[i]);
-
             if (i<net->num_steps-1)
                 fprintf(fp, ",");
         }
-
         fprintf(fp, "],\n");
     }
-
     if(net->num_steps > 0)
     {
         fprintf(fp, "    \"scales\": [");
-        for (int i=0; i<net->num_steps; i++)
-        {
+        for (int i=0; i<net->num_steps; i++) {
             fprintf(fp, "%f",net->scales[i]);
             if (i<net->num_steps-1)
                 fprintf(fp, ",");
         }
         fprintf(fp, "],\n");
     }
-
-    fprintf(fp, "  \n");
+    fprintf(fp, "\n");
 
     fprintf(fp, "    \"adam\": %d,\n",net->adam);
     fprintf(fp, "    \"B1\": %f,\n",net->B1);
     fprintf(fp, "    \"B2\": %f,\n",net->B2);
     fprintf(fp, "    \"eps\": %f,\n",net->eps);
-    fprintf(fp, "  \n");
+    fprintf(fp, "\n");
 
     fprintf(fp, "    \"max_crop\": %d,\n",net->max_crop);
     fprintf(fp, "    \"min_crop\": %d,\n",net->min_crop);
@@ -79,11 +100,74 @@ void write_net_file(network *net, char *file_path)
     fprintf(fp, "    \"hue\": %f,\n",net->hue);
     fprintf(fp, "    \"random\": %d\n",net->random);
 
-    fprintf(fp, "  }\n");
-    fprintf(fp, "}\n");
+    fprintf(fp, "  }");
+}
+
+void write_summary_metrics(FILE *fp, EpochResults *best_epoch_results)
+{
+    if (best_epoch_results == NULL ||
+        best_epoch_results->y_score_train == NULL) {
+        fprintf(fp, "  \"evaluation\": {}");
+        return;
+    }
+
+    fprintf(fp, "  \"evaluation\":\n");
+    fprintf(fp, "  {\n");
+
+    // Save training metrics
+    fprintf(fp, "    \"training_set\":\n");
+    fprintf(fp, "    {\n");
+
+    for(int i = 0; i < NUM_METRICS; ++i) {
+        fprintf(fp,
+                "      \"%s\": %f",
+                evaluation_metric_names[i],
+                evaluation_metrics[i](best_epoch_results->y_true_train,
+                                      best_epoch_results->y_score_train,
+                                      best_epoch_results->N_train,
+                                      best_epoch_results->classes));
+
+        if(i < NUM_METRICS - 1) {
+            fprintf(fp, ",\n");
+        }
+    }
+
+    // Save evaluation metrics
+    fprintf(fp, "\n");
+    fprintf(fp, "    },\n");
+    fprintf(fp, "    \"validation_set\":\n");
+    fprintf(fp, "    {\n");
+    for(int i = 0; i < NUM_METRICS; ++i) {
+        fprintf(fp,
+                "      \"%s\": %f",
+                evaluation_metric_names[i],
+                evaluation_metrics[i](best_epoch_results->y_true_valid,
+                                      best_epoch_results->y_score_valid,
+                                      best_epoch_results->N_valid,
+                                      best_epoch_results->classes));
+
+        if(i < NUM_METRICS - 1) {
+            fprintf(fp, ",\n");
+        }
+    }
+    fprintf(fp, "\n");
+    fprintf(fp, "    }\n");
+    fprintf(fp, "  }");
+}
+
+void save_training_summary(network *net, char *file_path, EpochResults *best_epoch_results)
+{
+    FILE * fp = fopen (file_path, "w+");
+
+    fprintf(fp, "{\n");
+    write_summary_hyperparameters(fp, net);
+    fprintf(fp, ",\n");
+    write_summary_metrics(fp, best_epoch_results);
+    fprintf(fp, "\n}\n");
 
     fclose(fp);
 }
+
 
 void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, SSM_Params params)
 {
@@ -128,10 +212,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     sprintf(log_file_path, "%s/%s", backup_directory, params.log_file);
     FILE* log_file = fopen(log_file_path, "w+");
-
-    // print network hiper-parameters
-    sprintf(log_file_path, "%s/%s", backup_directory, params.hyper_param_file);
-    write_net_file(nets[0], log_file_path);
 
     char **labels = get_labels(label_list);
 
@@ -190,6 +270,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int epoch = (*net->seen) / N_train, count = 0;
     float epoch_loss = 0.0;
 
+    EpochResults *best_epoch_results = new_epoch_results(N_train, N_valid, classes);
 
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches)
     {
@@ -269,6 +350,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
                 best_acc = valid_accs[cur_epoch];
                 sprintf(buff, "%s/%s-best.weights",backup_directory, base_net_name);
                 save_weights(net, buff);
+
+                // Update best confusion matrices
+                copy_epoch_results(best_epoch_results, y_true_train, y_score_train, y_true_valid, y_score_valid);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -279,8 +363,13 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         }
     }
 
-
     pthread_join(load_thread, 0);
+
+    // Save training summary
+    sprintf(log_file_path, "%s/%s", backup_directory, params.hyper_param_file);
+    save_training_summary(net, log_file_path, best_epoch_results);
+
+    destroy_epoch_results(best_epoch_results);
 
     fclose(log_file);
 
@@ -408,7 +497,20 @@ void output_training_log (FILE* file, int epoch, float loss, int* y_true_train, 
 
 
 
-//========================================================================================================================
+//===========================================================================================================================
+
+
+float *get_regression_values(char **labels, int n)
+{
+    float *v = calloc(n, sizeof(float));
+    int i;
+    for(i = 0; i < n; ++i){
+        char *p = strchr(labels[i], ' ');
+        *p = 0;
+        v[i] = atof(p+1);
+    }
+    return v;
+}
 
 
 
