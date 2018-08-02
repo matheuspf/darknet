@@ -215,14 +215,17 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
     char **labels = get_labels(label_list);
 
+    int max_pred = params.max_predictions;
+
     list *plist_train = get_paths(train_list);
     char **paths_train = (char **)list_to_array(plist_train);
     int N_train = plist_train->size;
+    int max_train = (max_pred>N_train)?N_train:max_pred;
 
     list *plist_valid = get_paths(valid_list);
     char **paths_valid = (char **)list_to_array(plist_valid);
     int N_valid = plist_valid->size;
-
+    int max_valid = (max_pred>N_valid)?N_valid:max_pred;
 
     double time;
 
@@ -257,11 +260,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int max_eval_epochs = params.max_epochs / params.eval_epochs;
     max_eval_epochs = max_eval_epochs > 1 ? max_eval_epochs : 1;
 
-    float** y_score_train = new_mat(N_train, classes, sizeof(float));
-    float** y_score_valid = new_mat(N_valid, classes, sizeof(float));
+    float** y_score_train = new_mat(max_train, classes, sizeof(float));
+    float** y_score_valid = new_mat(max_valid, classes, sizeof(float));
 
-    int* y_true_train = malloc(N_train * sizeof(int));
-    int* y_true_valid = malloc(N_valid * sizeof(int));
+    int* y_true_train = malloc(max_train * sizeof(int));
+    int* y_true_valid = malloc(max_valid * sizeof(int));
 
     float *train_accs = malloc(max_eval_epochs * sizeof(float));
     float *valid_accs = malloc(max_eval_epochs * sizeof(float));
@@ -270,7 +273,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int epoch = (*net->seen) / N_train, count = 0;
     float epoch_loss = 0.0;
 
-    EpochResults *best_epoch_results = new_epoch_results(N_train, N_valid, classes);
+    EpochResults *best_epoch_results = new_epoch_results(max_train, max_valid, classes);
 
     while(epoch < params.max_epochs && get_current_batch(net) < net->max_batches)
     {
@@ -335,13 +338,13 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
             int cur_epoch = (epoch / params.eval_epochs) - 1;
 
-            get_predictions(net, paths_train, labels, N_train, classes, y_score_train, y_true_train, params.max_predictions);
-            get_predictions(net, paths_valid, labels, N_valid, classes, y_score_valid, y_true_valid, params.max_predictions);
+            get_predictions(net, paths_train, labels, N_train, classes, y_score_train, y_true_train, max_train);
+            get_predictions(net, paths_valid, labels, N_valid, classes, y_score_valid, y_true_valid, max_valid);
 
-            train_accs[cur_epoch] = metric(y_true_train, y_score_train, N_train, classes);
-            valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
+            train_accs[cur_epoch] = metric(y_true_train, y_score_train, max_train, classes);
+            valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, max_valid, classes);
 
-            output_training_log(stdout, epoch, epoch_loss, y_true_train, y_score_train, N_train, y_true_valid, y_score_valid, N_valid, classes, params.log_output);
+            output_training_log(stdout, epoch, epoch_loss, y_true_train, y_score_train, max_train, y_true_valid, y_score_valid, max_valid, classes, params.log_output);
 
             epoch_loss = 0.0;
 
@@ -383,8 +386,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     free_ptrs((void**)paths_valid, plist_valid->size);
     free_list(plist_valid);
 
-    del_mat(y_score_train, N_train);
-    del_mat(y_score_valid, N_valid);
+    del_mat(y_score_train, max_train);
+    del_mat(y_score_valid, max_valid);
 
     free(y_true_train);
     free(y_true_valid);
