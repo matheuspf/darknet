@@ -395,7 +395,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
 float** get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true)
 {
-    int r, c, curr_batch, global_idx = 0, l;
+    int r, c, curr_batch, global_idx = 0;
 
     int net_batch = net->batch;
 
