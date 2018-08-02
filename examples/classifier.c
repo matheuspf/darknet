@@ -327,11 +327,14 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     if(max != m)
     {
       // Knuth shuffle
-      for(int i=(max-1); i--; i>0){
+      for(int i=(max-1); i>0; i--){
         int random = rand() % i;
-        int temp = shuffled_indices[random];
-        shuffled_indices[random] = shuffled_indices[i];
-        shuffled_indices[i] = temp;
+        if(i!= random)
+        {
+          int temp = shuffled_indices[random];
+          shuffled_indices[random] = shuffled_indices[i];
+          shuffled_indices[i] = temp;
+        }
       }
     }
 
