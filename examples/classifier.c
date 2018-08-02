@@ -138,16 +138,14 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     // print network hiper-parameters
     write_net_file(nets[0], backup_directory);
 
-    char **labels = 0;
-
-    if(!tag)
-        labels = get_labels(label_list);
+    char **labels = get_labels(label_list);
 
     list *plist = get_paths(train_list);
     char **paths = (char **)list_to_array(plist);
     int N = plist->size;
 
     list *plist_valid = get_paths(valid_list);
+    char **paths_valid = (char **)list_to_array(plist_valid);
     int N_valid = plist_valid->size;
 
 
@@ -185,16 +183,16 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     args.d = &buffer;
     load_thread = load_data(args);
 
-    int total_max_epochs = params.max_epochs / params.eval_epochs;
-    total_max_epochs = total_max_epochs > 1 ? total_max_epochs : 1;
+    int max_eval_epochs = params.max_epochs / params.eval_epochs;
+    max_eval_epochs = max_eval_epochs > 1 ? max_eval_epochs : 1;
 
     float** y_score_train = new_mat(N, classes, sizeof(float));
     float** y_score_valid = new_mat(N_valid, classes, sizeof(float));
     int* y_true_train = malloc(N * sizeof(int));
     int* y_true_valid = malloc(N_valid * sizeof(int));
 
-    float *train_accs = malloc(total_max_epochs * sizeof(float));
-    float *valid_accs = malloc(total_max_epochs * sizeof(float));
+    float *train_accs = malloc(max_eval_epochs * sizeof(float));
+    float *valid_accs = malloc(max_eval_epochs * sizeof(float));
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0;
     int epoch = (*net->seen)/N, count = 0;
@@ -261,12 +259,10 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             save_weights(net, buff);
             update_epoch = 0;
 
-            int cur_epoch = epoch / params.eval_epochs;
-            get_predictions(datacfg, cfgfile, buff, "train", y_score_train, y_true_train);
-            get_predictions(datacfg, cfgfile, buff, "valid", y_score_valid, y_true_valid);
+            int cur_epoch = (epoch / params.eval_epochs) - 1;
 
-            int* preds = top_prediction(y_score_train, N, classes);
-            float** cf_mat = confusion_matrix(y_true_train, preds, N, classes);
+            get_predictions(net, paths, labels, N, classes, "train", y_score_train, y_true_train);
+            get_predictions(net, paths_valid, labels, N_valid, classes, "valid", y_score_valid, y_true_valid);
 
             train_accs[cur_epoch] = metric(y_true_train, y_score_train, N, classes);
             valid_accs[cur_epoch] = metric(y_true_valid, y_score_valid, N_valid, classes);
@@ -289,52 +285,34 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         }
     }
 
-    // char buff[1024];
-    // sprintf(buff, "%s/%s.weights", backup_directory, base);
-    // save_weights(net, buff);
-    // pthread_join(load_thread, 0);
+
+    pthread_join(load_thread, 0);
 
     fclose(log_file);
 
-    //free_network(net);
+    free_network(net);
 
-    // if(labels) free_ptrs((void**)labels, classes);
-    // free_ptrs((void**)paths, plist->size);
-    // free_list(plist);
+    if(labels) free_ptrs((void**)labels, classes);
+    free_ptrs((void**)paths, plist->size);
+    free_list(plist);
 
-    // del_mat(y_score_train, N), del_mat(y_score_valid, N_valid);
-    // free(y_true_train), free(y_true_valid);
+    del_mat(y_score_train, N), del_mat(y_score_valid, N_valid);
+    free(y_true_train), free(y_true_valid);
 
-    //free(valid_accs);
-    //free(train_accs);
-    //free(base);
+    free(valid_accs);
+    free(train_accs);
+    free(base);
 }
 
 
-float** get_predictions (char *datacfg, char *filename, char *weightfile, char* set_name, float** y_score, int* y_true)
+float** get_predictions (network* net, char** paths, char** labels, int m, int classes, char* set_name, float** y_score, int* y_true)
 {
     int i, j;
-    network *net = load_network(filename, weightfile, 0);
+
+    int net_batch = net->batch;
     set_batch_network(net, 1);
+
     srand(time(0));
-
-    list *options = read_data_cfg(datacfg);
-
-    char *label_list = option_find_str(options, "labels", "data/labels.list");
-    char *leaf_list = option_find_str(options, "leaves", 0);
-    if(leaf_list) change_leaves(net->hierarchy, leaf_list);
-    char *valid_list = option_find_str(options, set_name, "data/test.list");
-    int classes = option_find_int(options, "classes", 2);
-    int topk = option_find_int(options, "top", 1);
-
-    char **labels = get_labels(label_list);
-    list *plist = get_paths(valid_list);
-
-    char **paths = (char **)list_to_array(plist);
-    int m = plist->size;
-    free_list(plist);
-
-    float acc = 0;
 
     for(i = 0; i < m; ++i){
         int class = -1;
@@ -345,6 +323,7 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
                 break;
             }
         }
+
         image im = load_image_color(paths[i], 0, 0);
         image crop = center_crop_image(im, net->w, net->h);
 
@@ -362,6 +341,7 @@ float** get_predictions (char *datacfg, char *filename, char *weightfile, char* 
         y_true[i] = class;
     }
 
+    set_batch_network(net, net_batch);
 
     free_network(net);
     free(paths);

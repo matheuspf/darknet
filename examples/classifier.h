@@ -34,6 +34,6 @@ extern const char* evaluation_metric_names[NUM_METRICS];
 
 void train_classifier_valid(char*, char*, char*, int*, int, int, SSM_Params);
 
-float** get_predictions (char*, char*, char*, char*, float**, int*);
+float** get_predictions (network*, char**, char**, int, int, char*, float**, int*);
 
 void output_training_log (FILE*, int, float, int*, float**, int, int*, float**, int, int, size_t);
