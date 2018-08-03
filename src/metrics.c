@@ -48,7 +48,7 @@ void paired_sort (float* v, float* u, int n)
 /// Divide @c num by @c den safely, returning 0 if @c den is very small
 float safe_division (float num, float den)
 {
-    return fabs(den) < 1e-8 ? 0.0 : num / den;
+    return fabs(den) < 1e-4 ? 0.0 : num / den;
 }
 
 /// Naive trapezoidal integral evaluation
@@ -229,7 +229,7 @@ float accuracy_score_conf (float** confusion_matrix, int classes)
         diag += confusion_matrix[i][i];
     }
 
-    return diag / sum;
+    return safe_division(diag, sum);
 }
 
 
@@ -276,7 +276,7 @@ float recall_score_conf (float** confusion_matrix, int classes)
         for(j = 0; j < classes; ++j)
             sum += confusion_matrix[i][j];
 
-        mean += (confusion_matrix[i][i] / sum);
+        mean += safe_division(confusion_matrix[i][i], sum);
     }
 
     return mean / classes;
@@ -301,7 +301,7 @@ float npv_score_conf (float** confusion_matrix, int classes)
             for(k = 0; k < classes; ++k)
                 num += confusion_matrix[j][k] * (i != k), den += confusion_matrix[j][k];
 
-        mean += (num / den);
+        mean += safe_division(num, den);
     }
 
     return mean / classes;
@@ -326,7 +326,7 @@ float specificity_score_conf (float** confusion_matrix, int classes)
             for(k = 0; k < classes; ++k)
                 num += confusion_matrix[j][k] * (i != j), den += confusion_matrix[j][k];
 
-        mean += (num / den);
+        mean += safe_division(num, den);
     }
 
     return mean / classes;
@@ -354,7 +354,7 @@ float f_score_conf (float** confusion_matrix, int classes, float beta)
     float recall = recall_score_conf(confusion_matrix, classes);
     beta *= beta;
 
-    return ((1 + beta) * precision * recall) / (beta * precision + recall);
+    return safe_division((1 + beta) * precision * recall, beta * precision + recall);
 }
 
 /** @brief Calculate the F1 score given a confusion matrix
@@ -466,8 +466,8 @@ float** precision_recall_curve (int* y_true, float* y_score, int n)
         false_neg += y_true[i];
 
         curve[0][i] = (y_score[i] + y_score[i+1]) / 2;
-        curve[1][i] = true_pos / (true_pos + false_neg);
-        curve[2][i] = true_pos / (true_pos + false_pos);
+        curve[1][i] = safe_division(true_pos, true_pos + false_neg);
+        curve[2][i] = safe_division(true_pos, true_pos + false_pos);
     }
 
     return curve;
@@ -497,8 +497,8 @@ float** roc_curve (int* y_true, float* y_score, int n)
         false_neg += y_true[i];
 
         curve[0][i] = (y_score[i] + y_score[i+1]) / 2;
-        curve[1][i] = true_pos / (true_pos + false_neg);
-        curve[2][i] = 1.0 - true_neg / (true_neg + false_pos);
+        curve[1][i] = safe_division(true_pos, true_pos + false_neg);
+        curve[2][i] = 1.0 - safe_division(true_neg, true_neg + false_pos);
     }
 
     return curve;
@@ -524,8 +524,8 @@ float** npv_tnr_curve (int* y_true, float* y_score, int n)
         false_pos -= !y_true[i];
 
         curve[0][i] = (y_score[i] + y_score[i+1]) / 2;
-        curve[1][i] = true_neg / (true_neg + false_pos);
-        curve[2][i] = true_neg / (true_neg + false_neg);
+        curve[1][i] = safe_division(true_neg, true_neg + false_pos);
+        curve[2][i] = safe_division(true_neg, true_neg + false_neg);
     }
 
     return curve;

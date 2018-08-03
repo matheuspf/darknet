@@ -24,3 +24,7 @@ ehthumbs.db
 Icon?
 Thumbs.db
 *.swp
+
+
+# VSCode
+.vscode/
