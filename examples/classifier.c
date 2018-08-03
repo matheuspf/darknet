@@ -412,14 +412,14 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 }
 
 
-float** get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true, int max)
+void get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true, int max)
 {
+    int r, c, curr_batch, global_idx = 0;
     int i, j;
 
     int net_batch = net->batch;
-    set_batch_network(net, 1);
-
-    // Make array of indices
+    
+    //Make array of indices
     if(max > m) {
       max = m;
     }
@@ -442,33 +442,54 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
       }
     }
 
+    char **new_paths = malloc(max * sizeof(char*));
+
     for(i = 0; i < max; ++i)
+        new_paths[i] = paths[shuffled_indices[i]];
+
+
+    data batch_data, buffer;
+
+    load_args args = {0};
+    args.w = net->w;
+    args.h = net->h;
+    args.paths = new_paths;
+    args.classes = classes;
+    args.n = net->batch;
+    args.m = 0;
+    args.labels = labels;
+    args.d = &buffer;
+    args.type = OLD_CLASSIFICATION_DATA;
+
+    pthread_t load_thread = load_data_in_thread(args);
+    for(curr_batch = net_batch; curr_batch < max; curr_batch += net_batch)
     {
-        int class = -1;
-        char *path = paths[shuffled_indices[i]];
-        for(j = 0; j < classes; ++j) if(strstr(path, labels[j]))
+        pthread_join(load_thread, 0);
+        batch_data = buffer;
+
+        if(curr_batch < max)
         {
-            class = j;
-            break;
+            args.paths = new_paths + curr_batch;
+            if (curr_batch + net_batch > max) args.n = max - curr_batch;
+            load_thread = load_data_in_thread(args);
         }
 
-        image im = load_image_color(path, 0, 0);
-        image crop = center_crop_image(im, net->w, net->h);
+        matrix predictions = network_predict_data(net, batch_data);
+        
+        for(r = 0; r < predictions.rows; ++r){
+            for(c = 0; c < predictions.cols; ++c){         
+                y_score[global_idx][c] = predictions.vals[r][c];                
+            }
+            y_true[global_idx++] = batch_data.y.vals[r][0];            
+        }
 
-        float *pred = network_predict(net, crop.data);
-
-        free_image(im);
-        free_image(crop);
-
-        for(j = 0; j < classes; ++j)
-            y_score[i][j] = pred[j];
-
-        y_true[i] = class;
+        free_matrix(predictions);
+        free_data(batch_data);
     }
 
-    set_batch_network(net, net_batch);
-
-    return y_score;
+    pthread_join(load_thread, 0);
+    
+    free(new_paths);
 }
 
 

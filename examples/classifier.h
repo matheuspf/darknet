@@ -64,6 +64,6 @@ void write_net_file (network*, char*);
 
 void train_classifier_valid(char*, char*, char*, int*, int, int, SSM_Params);
 
-float** get_predictions (network*, char**, char**, int, int, float**, int*, int);
+void get_predictions (network*, char**, char**, int, int, float**, int*, int);
 
 void output_training_log (FILE*, int, float, double, const EpochResults, size_t);
