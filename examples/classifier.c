@@ -267,8 +267,8 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int* y_true_train = malloc(N_train * sizeof(int));
     int* y_true_valid = malloc(N_valid * sizeof(int));
 
-    float *train_accs = malloc(max_eval_epochs * sizeof(float) + 1);
-    float *valid_accs = malloc(max_eval_epochs * sizeof(float) + 1);
+    float *train_accs = malloc((max_eval_epochs + 1) * sizeof(float));
+    float *valid_accs = malloc((max_eval_epochs + 1) * sizeof(float));
 
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0, count = 0;
