@@ -405,8 +405,6 @@ float** get_predictions (network* net, char** paths, char** labels, int m, int c
     int net_batch = net->batch;
     set_batch_network(net, 1);
 
-    srand(time(0));
-
     // Make array of indices
     if(max > m) {
       max = m;
