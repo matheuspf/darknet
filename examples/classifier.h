@@ -37,6 +37,7 @@ typedef struct
     // metrics after the end of each epoch.
     // Predictions are counted separately for training and validation datasets.
     int max_predictions;
+    int verbose;
 
 } SSM_Params;
 

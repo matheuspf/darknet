@@ -268,11 +268,11 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     float** y_score_train = new_mat(max_train, classes, sizeof(float));
     float** y_score_valid = new_mat(max_valid, classes, sizeof(float));
 
-    int* y_true_train = malloc(max_train * sizeof(int));
-    int* y_true_valid = malloc(max_valid * sizeof(int));
+    int* y_true_train = calloc(max_train, sizeof(int));
+    int* y_true_valid = calloc(max_valid, sizeof(int));
 
-    float *train_accs = malloc((max_eval_epochs + 1) * sizeof(float));
-    float *valid_accs = malloc((max_eval_epochs + 1) * sizeof(float));
+    float *train_accs = calloc((max_eval_epochs + 1), sizeof(float));
+    float *valid_accs = calloc((max_eval_epochs + 1), sizeof(float));
 
     float best_acc = -1.0;
     int bad_epochs = -1, update_epoch = 0, count = 0;
@@ -325,8 +325,9 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         epoch_loss += loss;
         batch_cur_time = what_time_is_it_now();
 
-        //printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), 
-        //   (float)(*net->seen) / N_train, loss, get_current_rate(net), batch_cur_time-batch_prev_time, *net->seen, bad_epochs);
+        if(params.verbose)
+            printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), 
+                (float)(*net->seen) / N_train, loss, get_current_rate(net), batch_cur_time-batch_prev_time, *net->seen, bad_epochs);
 
         free_data(train);
 
@@ -414,8 +415,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
 void get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true, int max)
 {
-    int r, c, curr_batch, global_idx = 0;
-    int i, j;
+    int i, r, c, curr_batch, global_idx = 0;
 
     int net_batch = net->batch;
     
@@ -1606,8 +1606,6 @@ void run_classifier(int argc, char **argv)
     section *s = (section *)n->val;
     list *options = s->options;
 
-    int max_predictions = option_find_int(options, "max_predictions", 10);
-
     int eval_epochs = option_find_int(options, "eval_epochs", 1);
     int max_epochs = option_find_int(options, "max_epochs", 100);
     int patience = option_find_int(options, "patience", 10);
@@ -1616,6 +1614,8 @@ void run_classifier(int argc, char **argv)
     char* log_file = option_find_str(options, "log_file", "training_log.txt");
     int log_output = option_find_int(options, "log_output", (1<<NUM_METRICS)-1);
     char* hyper_param_file = option_find_str(options, "hyper_param_file", "training_summary.json");
+    int max_predictions = option_find_int(options, "max_predictions", 100);
+    int verbose = option_find_int(options, "max_predictions", 0);
     TRAIN_METRIC metric;
 
     eval_epochs = find_int_arg(argc, argv, "-eval_epochs", eval_epochs);
@@ -1626,7 +1626,8 @@ void run_classifier(int argc, char **argv)
     log_file = find_char_arg(argc, argv, "-log_file", log_file);
     log_output = find_int_arg(argc, argv, "-log_output", log_output);
     hyper_param_file = find_char_arg(argc, argv, "-hyper_param_file", hyper_param_file);
-
+    max_predictions = find_int_arg(argc, argv, "-max_predictions", max_predictions);
+    verbose = find_int_arg(argc, argv, "-verbose", verbose);
 
     if(strcmp(metric_name, "accuracy") == 0) metric = ACCURACY;
     else if(strcmp(metric_name, "precision") == 0) metric = PRECISION;
@@ -1657,7 +1658,8 @@ void run_classifier(int argc, char **argv)
     else if(0==strcmp(argv[2], "validcrop")) validate_classifier_crop(data, cfg, weights);
     else if(0==strcmp(argv[2], "validfull")) validate_classifier_full(data, cfg, weights);
     else if(0==strcmp(argv[2], "train_valid")) train_classifier_valid(data, cfg, weights, gpus, ngpus, clear,
-                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, log_file, log_output, hyper_param_file, max_predictions});
+                                                                      (SSM_Params){metric, eval_epochs, max_epochs, patience, seed, log_file, 
+                                                                                   log_output, hyper_param_file, max_predictions, verbose});
 }
 
 
