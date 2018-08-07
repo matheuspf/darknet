@@ -443,9 +443,9 @@ void get_predictions (network* net, char** paths, char** labels, int m, int clas
     int r, c, curr_batch, global_idx = 0;
     int i, j;
 
-    int net_batch = net->batch;
+    int original_net_batch = net->batch;
 
-    if(max < net_batch) {
+    if(max < original_net_batch) {
         set_batch_network(net, max);
     }
     
@@ -492,8 +492,8 @@ void get_predictions (network* net, char** paths, char** labels, int m, int clas
     args.type = OLD_CLASSIFICATION_DATA;
 
     pthread_t load_thread = load_data_in_thread(args);
-    _Bool hasRemainder = 1;
-    for(curr_batch = net_batch; curr_batch < max; curr_batch += net_batch)
+    _Bool has_remainder = 1;
+    for(curr_batch = net->batch; curr_batch < max; curr_batch += net->batch)
     {
         pthread_join(load_thread, 0);
         batch_data = buffer;
@@ -503,18 +503,18 @@ void get_predictions (network* net, char** paths, char** labels, int m, int clas
         if(curr_batch < max)
         {
             args.paths = new_paths + curr_batch;
-            if (curr_batch + net_batch > max) args.n = max - curr_batch;
+            if (curr_batch + net->batch > max) args.n = max - curr_batch;
             load_thread = load_data_in_thread(args);
 
-            hasRemainder = 1;
+            has_remainder = 1;
         }
         else
         {
-            hasRemainder = 0;
+            has_remainder = 0;
         }
     }
 
-    if(hasRemainder)
+    if(has_remainder)
     {
         pthread_join(load_thread, 0);
         batch_data = buffer;
@@ -523,7 +523,7 @@ void get_predictions (network* net, char** paths, char** labels, int m, int clas
     
     free(new_paths);
 
-    set_batch_network(net, net_batch);
+    set_batch_network(net, original_net_batch);
 }
 
 
