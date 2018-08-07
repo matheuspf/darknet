@@ -1606,17 +1606,26 @@ void run_classifier(int argc, char **argv)
     section *s = (section *)n->val;
     list *options = s->options;
 
-    int max_predictions = option_find_int(options, "max_predictions", 10);
-
     int eval_epochs = option_find_int(options, "eval_epochs", 1);
     int max_epochs = option_find_int(options, "max_epochs", 100);
     int patience = option_find_int(options, "patience", 10);
     int seed = option_find_int(options, "seed", -1);
     char* metric_name = option_find_str(options, "metric", "accuracy");
     char* log_file = option_find_str(options, "log_file", "training_log.txt");
-    int log_output = option_find_int(options, "log_output", (1<<NUM_METRICS)-1);
+    char* log_output_str = option_find_str(options, "log_output", "accuracy, precision, recall, f1");
     char* hyper_param_file = option_find_str(options, "hyper_param_file", "training_summary.json");
+    int max_predictions = option_find_int(options, "max_predictions", 10);
     TRAIN_METRIC metric;
+
+
+    list* log_output_list = split_str(log_output_str, ',');
+    node* nd;
+    int i, log_output = 0;
+
+    for(nd = log_output_list->front; nd; nd = nd->next)
+        for(i = 0; i < NUM_METRICS; ++i)
+            if(!strcmp((char*)nd->val, evaluation_metric_names[i]))
+                log_output += (1 << i);
 
     eval_epochs = find_int_arg(argc, argv, "-eval_epochs", eval_epochs);
     max_epochs = find_int_arg(argc, argv, "-max_epochs", max_epochs);

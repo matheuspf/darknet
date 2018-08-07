@@ -5,6 +5,7 @@
 #include <sys/time.h>
 #include <assert.h>
 
+#include "../src/utils.h"
 #include "../src/parser.h"
 #include "../src/metrics.h"
 
