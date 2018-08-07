@@ -205,13 +205,37 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     int classes = option_find_int(options, "classes", 2);
 
 
-    char log_file_path[1024];
+    char time_stamp_dir[1024], log_file_path[1024], summary_file_path[1024];
+
+    sprintf(time_stamp_dir, "%s/%s", backup_directory, full_time_stamp());
+    mkdir(time_stamp_dir, S_IRWXU | S_IRWXG | S_IRWXO);
+
+    sprintf(log_file_path, "%s/%s", time_stamp_dir, params.log_file);
+    FILE* log_file_ts = fopen(log_file_path, "w+");
+
+    sprintf(summary_file_path, "%s/%s", time_stamp_dir, params.hyper_param_file);
+    FILE* summary_file_ts = fopen(summary_file_path, "w+");
 
     sprintf(log_file_path, "%s/%s", backup_directory, params.log_file);
     FILE* log_file = fopen(log_file_path, weightfile ? "a+" : "w+");
 
-    sprintf(log_file_path, "%s/%s", backup_directory, params.hyper_param_file);
-    FILE* summary_file = fopen(log_file_path, weightfile ? "a+" : "w+");
+    sprintf(summary_file_path, "%s/%s", backup_directory, params.hyper_param_file);
+    FILE* summary_file = fopen(summary_file_path, "w+");
+
+    if(weightfile)
+    {
+        FILE* log_file_read = fopen(log_file_path, "r");
+        FILE* summary_file_read = fopen(summary_file_path, "r");
+
+        copy_file_str(log_file_read, log_file_ts);
+        copy_file_str(summary_file_read, summary_file_ts);
+
+        fclose(log_file_read);
+        fclose(summary_file_read);
+
+        fseek(summary_file_ts, 0, SEEK_SET);
+    }
+
 
 
     char **labels = get_labels(label_list);
@@ -357,6 +381,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
             output_training_log(stdout, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
             output_training_log(log_file, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
+            output_training_log(log_file_ts, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
 
             epoch_loss = 0.0;
             epoch_prev_time = epoch_cur_time;
@@ -369,7 +394,12 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
                 // Update best confusion matrices
                 copy_epoch_results(best_epoch_results, y_true_train, y_score_train, y_true_valid, y_score_valid);
+
+                fseek(summary_file, 0, SEEK_SET);
                 save_training_summary(net, summary_file, best_epoch_results);
+
+                fseek(summary_file_ts, 0, SEEK_SET);
+                save_training_summary(net, summary_file_ts, best_epoch_results);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -383,12 +413,18 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     pthread_join(load_thread, 0);
 
     // Save training summary
+    fseek(summary_file, 0, SEEK_SET);
     save_training_summary(net, summary_file, best_epoch_results);
+
+    fseek(summary_file_ts, 0, SEEK_SET);
+    save_training_summary(net, summary_file_ts, best_epoch_results);
 
     destroy_epoch_results(best_epoch_results);
 
     fclose(log_file);
     fclose(summary_file);
+    fclose(log_file_ts);
+    fclose(summary_file_ts);
 
     free_network(net);
 
@@ -526,6 +562,31 @@ void output_training_log (FILE* file, int epoch, float loss, double elapsed_time
 
     del_mat(conf_train, res.classes);
     del_mat(conf_valid, res.classes);
+}
+
+
+char* full_time_stamp ()
+{
+    char *timestamp = malloc(sizeof(char) * 16);
+    time_t ltime = time(0);
+    struct tm *tm = localtime(&ltime);
+
+    sprintf(timestamp,"%04d%02d%02d%02d%02d%02d", tm->tm_year+1900, tm->tm_mon, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
+
+    return timestamp;
+}
+
+void copy_file_str (FILE* from, FILE* to)
+{
+    fseek(from, 0, SEEK_END);
+    long fsize = ftell(from);
+    fseek(from, 0, SEEK_SET);
+
+    char *str = malloc(fsize + 1);
+    fread(str, fsize, 1, from);
+    str[fsize] = 0;
+
+    fputs(str, to);
 }
 
 
