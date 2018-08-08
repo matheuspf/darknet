@@ -3,8 +3,10 @@
 #include "darknet.h"
 
 #include <sys/time.h>
+#include <sys/stat.h>
 #include <assert.h>
 
+#include "../src/utils.h"
 #include "../src/parser.h"
 #include "../src/metrics.h"
 
@@ -68,3 +70,7 @@ void train_classifier_valid(char*, char*, char*, int*, int, int, SSM_Params);
 void get_predictions (network*, char**, char**, int, int, float**, int*, int);
 
 void output_training_log (FILE*, int, float, double, const EpochResults, size_t);
+
+char* full_time_stamp ();
+
+void copy_file_str (FILE*, FILE*);
