@@ -572,7 +572,7 @@ void output_training_log (FILE* file, int epoch, float loss, double elapsed_time
 
     if(epoch == 1)
     {
-        fprintf(file, "Epoch, Loss, Time");
+        fprintf(file, "Epoch, train_Loss, Time");
 
         for(i = 0; i < NUM_METRICS; ++i) if((1 << i) & options)
             fprintf(file, ", train_%s, valid_%s", evaluation_metric_names[i], evaluation_metric_names[i]);
