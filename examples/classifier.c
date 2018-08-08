@@ -204,6 +204,12 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     if (tree) net->hierarchy = read_tree(tree);
     int classes = option_find_int(options, "classes", 2);
 
+    if (classes != net->outputs) {
+        fprintf(stderr,
+                "Error: The amount of classes do not match the number of "
+                "outputs in the trained network!");
+        exit(0);
+    }
 
     char time_stamp_dir[1024], log_file_path[1024], summary_file_path[1024];
 
@@ -350,7 +356,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         batch_cur_time = what_time_is_it_now();
 
         if(params.verbose)
-            printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net), 
+            printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net),
                 (float)(*net->seen) / N_train, loss, get_current_rate(net), batch_cur_time-batch_prev_time, *net->seen, bad_epochs);
 
         free_data(train);
@@ -448,12 +454,36 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     free(base_net_name);
 }
 
+void perform_prediction(network *net,
+                        data batch_data,
+                        float** y_score,
+                        int* y_true,
+                        int* global_idx)
+{
+    matrix predictions = network_predict_data(net, batch_data);
+
+    for(int r = 0; r < predictions.rows; ++r){
+        for(int c = 0; c < predictions.cols; ++c){
+            y_score[*global_idx][c] = predictions.vals[r][c];
+        }
+        y_true[*global_idx] = batch_data.y.vals[r][0];
+        *global_idx = (*global_idx) + 1;
+    }
+
+    free_matrix(predictions);
+    free_data(batch_data);
+}
+
 
 void get_predictions (network* net, char** paths, char** labels, int m, int classes, float** y_score, int* y_true, int max)
 {
     int i, r, c, curr_batch, global_idx = 0;
 
-    int net_batch = net->batch;
+    int original_net_batch = net->batch;
+
+    if(max < original_net_batch) {
+        set_batch_network(net, max);
+    }
     
     //Make array of indices
     if(max > m) {
@@ -498,34 +528,38 @@ void get_predictions (network* net, char** paths, char** labels, int m, int clas
     args.type = OLD_CLASSIFICATION_DATA;
 
     pthread_t load_thread = load_data_in_thread(args);
-    for(curr_batch = net_batch; curr_batch < max; curr_batch += net_batch)
+    _Bool has_remainder = 1;
+    for(curr_batch = net->batch; curr_batch < max; curr_batch += net->batch)
     {
         pthread_join(load_thread, 0);
         batch_data = buffer;
 
+        perform_prediction(net, batch_data, y_score, y_true, &global_idx);
+
         if(curr_batch < max)
         {
             args.paths = new_paths + curr_batch;
-            if (curr_batch + net_batch > max) args.n = max - curr_batch;
+            if (curr_batch + net->batch > max) args.n = max - curr_batch;
             load_thread = load_data_in_thread(args);
-        }
 
-        matrix predictions = network_predict_data(net, batch_data);
-        
-        for(r = 0; r < predictions.rows; ++r){
-            for(c = 0; c < predictions.cols; ++c){         
-                y_score[global_idx][c] = predictions.vals[r][c];                
-            }
-            y_true[global_idx++] = batch_data.y.vals[r][0];            
+            has_remainder = 1;
         }
-
-        free_matrix(predictions);
-        free_data(batch_data);
+        else
+        {
+            has_remainder = 0;
+        }
     }
 
-    pthread_join(load_thread, 0);
+    if(has_remainder)
+    {
+        pthread_join(load_thread, 0);
+        batch_data = buffer;
+        perform_prediction(net, batch_data, y_score, y_true, &global_idx);
+    }
     
     free(new_paths);
+
+    set_batch_network(net, original_net_batch);
 }
 
 
