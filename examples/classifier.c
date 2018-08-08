@@ -186,6 +186,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 #endif
         nets[i] = load_network(cfgfile, weightfile, clear);
         nets[i]->learning_rate *= ngpus;
+        *nets[i]->seen = 0;
     }
 
     srand(params.seed == -1 ? time(0) : params.seed);
@@ -217,31 +218,10 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     mkdir(time_stamp_dir, S_IRWXU | S_IRWXG | S_IRWXO);
 
     sprintf(log_file_path, "%s/%s", time_stamp_dir, params.log_file);
-    FILE* log_file_ts = fopen(log_file_path, "w+");
+    FILE* log_file = fopen(log_file_path, "w+");
 
     sprintf(summary_file_path, "%s/%s", time_stamp_dir, params.hyper_param_file);
-    FILE* summary_file_ts = fopen(summary_file_path, "w+");
-
-    sprintf(log_file_path, "%s/%s", backup_directory, params.log_file);
-    FILE* log_file = fopen(log_file_path, weightfile ? "a+" : "w+");
-
-    sprintf(summary_file_path, "%s/%s", backup_directory, params.hyper_param_file);
     FILE* summary_file = fopen(summary_file_path, "w+");
-
-    if(weightfile)
-    {
-        FILE* log_file_read = fopen(log_file_path, "r");
-        FILE* summary_file_read = fopen(summary_file_path, "r");
-
-        copy_file_str(log_file_read, log_file_ts);
-        copy_file_str(summary_file_read, summary_file_ts);
-
-        fclose(log_file_read);
-        fclose(summary_file_read);
-
-        fseek(summary_file_ts, 0, SEEK_SET);
-    }
-
 
 
     char **labels = get_labels(label_list);
@@ -355,7 +335,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
         epoch_loss += loss;
         batch_cur_time = what_time_is_it_now();
 
-        if(params.verbose)
+        if(params.verbose >= 2)
             printf("epoch: %d, batch: %ld, seen: %f, loss: %f, rate: %f, seconds: %lf, images: %ld, bad epochs: %d\n", epoch, get_current_batch(net),
                 (float)(*net->seen) / N_train, loss, get_current_rate(net), batch_cur_time-batch_prev_time, *net->seen, bad_epochs);
 
@@ -372,7 +352,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             epoch_cur_time = what_time_is_it_now();
 
             char buff[1024];
-            sprintf(buff, "%s/%s.weights",backup_directory, base_net_name);
+            sprintf(buff, "%s/%s.weights", time_stamp_dir, base_net_name);
             save_weights(net, buff);
             update_epoch = 0;
 
@@ -386,9 +366,10 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
             EpochResults current_epoch_results = {y_true_train, y_score_train, y_true_valid, y_score_valid, max_train, max_valid, classes};
 
-            output_training_log(stdout, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
             output_training_log(log_file, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
-            output_training_log(log_file_ts, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
+
+            if(params.verbose >= 1)
+                output_training_log(stdout, epoch, epoch_loss, epoch_cur_time - epoch_prev_time, current_epoch_results, params.log_output);
 
             epoch_loss = 0.0;
             epoch_prev_time = epoch_cur_time;
@@ -396,7 +377,7 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
             if(valid_accs[cur_epoch] > best_acc)
             {
                 best_acc = valid_accs[cur_epoch];
-                sprintf(buff, "%s/%s-best.weights",backup_directory, base_net_name);
+                sprintf(buff, "%s/%s-best.weights", time_stamp_dir, base_net_name);
                 save_weights(net, buff);
 
                 // Update best confusion matrices
@@ -404,9 +385,6 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
 
                 fseek(summary_file, 0, SEEK_SET);
                 save_training_summary(net, summary_file, best_epoch_results);
-
-                fseek(summary_file_ts, 0, SEEK_SET);
-                save_training_summary(net, summary_file_ts, best_epoch_results);
             }
 
             if(cur_epoch > 0 && valid_accs[cur_epoch] > valid_accs[cur_epoch-1])
@@ -423,15 +401,10 @@ void train_classifier_valid(char *datacfg, char *cfgfile, char *weightfile, int 
     fseek(summary_file, 0, SEEK_SET);
     save_training_summary(net, summary_file, best_epoch_results);
 
-    fseek(summary_file_ts, 0, SEEK_SET);
-    save_training_summary(net, summary_file_ts, best_epoch_results);
-
     destroy_epoch_results(best_epoch_results);
 
     fclose(log_file);
     fclose(summary_file);
-    fclose(log_file_ts);
-    fclose(summary_file_ts);
 
     free_network(net);
 
@@ -1710,7 +1683,7 @@ void run_classifier(int argc, char **argv)
     char* log_output_str = option_find_str(options, "log_output", "accuracy, precision, recall, f1");
     char* hyper_param_file = option_find_str(options, "hyper_param_file", "training_summary.json");
     int max_predictions = option_find_int(options, "max_predictions", 100);
-    int verbose = option_find_int(options, "max_predictions", 0);
+    int verbose = option_find_int(options, "verbose", 0);
     TRAIN_METRIC metric;
 
 
